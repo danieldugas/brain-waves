@@ -5,14 +5,15 @@ import math
 
 g_overflow_count = 0
 
-def sigmoid(x):
-    limit = 1000000.0
-    if (np.abs(x) > limit).any():
-      global g_overflow_count
-      g_overflow_count += 1
-      x[x > limit] = limit * 0.9
-      x[x < -limit] = -limit * 0.9
-    return 1. / (1 + np.exp(-x))
+def sigmoid(x, called_from=''):
+    f = 1. / (1 + np.exp(-x))
+    if np.isnan(f).any():
+      f[np.isnan(f)] == 0
+      print("NaN!")
+    if np.isinf(f).any():
+      f[np.isinf(f)] == 10000
+      print("Inf!")
+    return f
 
 # createst uniform random array w/ values in [a,b) and shape args
 def rand_arr(a, b, *args):
@@ -96,9 +97,9 @@ class LstmNode:
         # concatenate x(t) and h(t-1)
         xc = np.hstack((x,  h_prev))
         self.state.g = np.tanh(np.dot(self.param.wg, xc) + self.param.bg)
-        self.state.i = sigmoid(np.dot(self.param.wi, xc) + self.param.bi)
-        self.state.f = sigmoid(np.dot(self.param.wf, xc) + self.param.bf)
-        self.state.o = sigmoid(np.dot(self.param.wo, xc) + self.param.bo)
+        self.state.i = sigmoid(np.dot(self.param.wi, xc) + self.param.bi, 'i')
+        self.state.f = sigmoid(np.dot(self.param.wf, xc) + self.param.bf, 'f')
+        self.state.o = sigmoid(np.dot(self.param.wo, xc) + self.param.bo, 'o')
         self.state.s = self.state.g * self.state.i + s_prev * self.state.f
         self.state.h = self.state.s * self.state.o
         self.x = x

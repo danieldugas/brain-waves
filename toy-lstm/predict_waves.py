@@ -4,29 +4,47 @@ import numpy as np
 
 from lstm import LstmParam, LstmNetwork
 
+LEARNING_RATE = 0.1
+
 PLOT_LIVE_OUTPUT = False # Slow
 PLOT_LIVE_STATE = False # Slow
-PLOT_WEIGHTS = True # Slow
-PLOT_WEIGHT_STATS = True
+PLOT_WEIGHTS = False # Slow
+PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
+
+DEBUG_KEEP_WINDOW_STILL = True
+DEBUG_RANDOM_WINDOW = False
+
+# createst uniform random array w/ values in [a,b) and shape args
+def rand_arr(a, b, *args):
+    np.random.seed(0)
+    return np.random.rand(*args) * (b - a) + a
 
 class ToyLossLayer:
     """
     Computes square loss with first element of hidden layer array.
     """
-    @classmethod
-    def loss(self, pred, label):
-        return (pred[0] - label) ** 2
+    def __init__(self, pred_size):
+        self.w = rand_arr(-0.1, 0.1, pred_size)
+        self.b = 0
 
-    @classmethod
+    def output(self, pred):
+        return np.dot(self.w, pred) + self.b
+
+    def loss(self, pred, label):
+        return (self.output(pred) - label) ** 2
+
     def bottom_diff(self, pred, label):
-        diff = np.zeros_like(pred)
-        diff[0] = 2 * (pred[0] - label)
+        output_error = (self.output(pred) - label)
+        diff = 2 * output_error*self.w
+        # Apply a little learning to oneself
+        self.w -= 0.1* (1/self.w.shape[0]) * output_error * pred
         return diff
 
+
 # parameters for input data dimension and lstm cell count
-mem_cell_ct = 20
+mem_cell_ct = 100
 x_dim = 1
 concat_len = x_dim + mem_cell_ct
 lstm_param = LstmParam(mem_cell_ct, x_dim)
@@ -37,6 +55,8 @@ x_list = raw_data[2000:12000:100]
 # the output values are the next input values (the LSTM has to predict them)
 y_list = x_list[1:]
 y_list = np.append(y_list, 0)
+# loss layer
+loss_layer = ToyLossLayer(mem_cell_ct)
 
 ## Plot x_list
 import matplotlib.pyplot as plt
@@ -60,8 +80,10 @@ for epoch in range(n_epochs):
   plt.suptitle("Epoch " + str(epoch) )
   # Prepare the positions the sliding window will jump through
   sliding_window_positions = range(backprop_trunc_length, len(y_list))
-  sliding_window_positions = [30 for i in sliding_window_positions]
-#   np.random.shuffle(sliding_window_positions)
+  if DEBUG_KEEP_WINDOW_STILL:
+    sliding_window_positions = [30 for i in sliding_window_positions]
+  if DEBUG_RANDOM_WINDOW:
+    np.random.shuffle(sliding_window_positions)
 
   # Move a sliding window along the whole dataset. Train within the window
   for i_sw, sliding_window_position in enumerate(sliding_window_positions):
@@ -86,7 +108,7 @@ for epoch in range(n_epochs):
     y_pred = []
     for node, index in enumerate(current_window_indices):
       lstm_net.x_list_add(x_list[index])
-      output = lstm_net.lstm_node_list[node].state.h[0]
+      output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
       y_pred.append( output )
 
       if PLOT_LIVE_STATE:
@@ -139,8 +161,8 @@ for epoch in range(n_epochs):
 #       raw_input("Press any key to backprop")
 
     # Perform backprop on whole sliding window (backwards through nodes)
-    loss = lstm_net.y_list_is(current_window_y_list, ToyLossLayer)
-    lstm_param.apply_diff(lr=0.01)
+    loss = lstm_net.y_list_is(current_window_y_list, loss_layer)
+    lstm_param.apply_diff(lr=LEARNING_RATE)
     lstm_net.x_list_clear()
     lstm_net.lstm_node_list = []
 
@@ -152,6 +174,7 @@ for epoch in range(n_epochs):
       plt.cla()
       plt.plot(loss_log)
       plt.xlim([0,n_epochs*len(x_list)])
+      plt.ylim([0, max(loss_log)])
       for i in range(n_epochs):
         plt.axvline(i*len(x_list))
 
@@ -168,7 +191,7 @@ test_indices = range(len(x_list))
 test_pred = []
 for node, index in enumerate(test_indices):
   lstm_net.x_list_add(x_list[index])
-  output = lstm_net.lstm_node_list[node].state.h[0]
+  output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
   test_pred.append( output )
 
 plt.figure('data')

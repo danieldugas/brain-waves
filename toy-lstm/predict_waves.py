@@ -13,7 +13,7 @@ PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = True
+DEBUG_KEEP_WINDOW_STILL = False
 DEBUG_RANDOM_WINDOW = False
 
 # createst uniform random array w/ values in [a,b) and shape args
@@ -44,7 +44,7 @@ class ToyLossLayer:
 
 
 # parameters for input data dimension and lstm cell count
-mem_cell_ct = 100
+mem_cell_ct = 256
 x_dim = 1
 concat_len = x_dim + mem_cell_ct
 lstm_param = LstmParam(mem_cell_ct, x_dim)
@@ -141,9 +141,9 @@ for epoch in range(n_epochs):
       plt.plot(avg_weight_log)
       plt.plot(min_weight_log)
       plt.plot(max_weight_log)
-      plt.xlim([0,n_epochs*len(x_list)])
+      plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
       for i in range(n_epochs):
-        plt.axvline(i*len(x_list))
+        plt.axvline(i*(len(x_list)-backprop_trunc_length))
 
     if PLOT_WEIGHTS:
       allweights = np.hstack( [lstm_net.lstm_param.wg,
@@ -173,10 +173,10 @@ for epoch in range(n_epochs):
       plt.figure('loss_stats')
       plt.cla()
       plt.plot(loss_log)
-      plt.xlim([0,n_epochs*len(x_list)])
+      plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
       plt.ylim([0, max(loss_log)])
       for i in range(n_epochs):
-        plt.axvline(i*len(x_list))
+        plt.axvline(i*(len(x_list)-backprop_trunc_length))
 
 
 

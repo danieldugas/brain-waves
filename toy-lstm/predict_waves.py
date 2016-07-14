@@ -5,6 +5,7 @@ import numpy as np
 from lstm import LstmParam, LstmNetwork
 
 LEARNING_RATE = 0.1
+MEM_CELL_COUNT = 256
 
 PLOT_LIVE_OUTPUT = False # Slow
 PLOT_LIVE_STATE = False # Slow
@@ -15,6 +16,8 @@ PLOT_SLIDING_WINDOW = True
 
 DEBUG_KEEP_WINDOW_STILL = False
 DEBUG_RANDOM_WINDOW = False
+
+autosave_filename = "lstm_net_autosave.pickle"
 
 # createst uniform random array w/ values in [a,b) and shape args
 def rand_arr(a, b, *args):
@@ -44,11 +47,21 @@ class ToyLossLayer:
 
 
 # parameters for input data dimension and lstm cell count
-mem_cell_ct = 256
+mem_cell_ct = MEM_CELL_COUNT
 x_dim = 1
 concat_len = x_dim + mem_cell_ct
 lstm_param = LstmParam(mem_cell_ct, x_dim)
 lstm_net = LstmNetwork(lstm_param)
+## Load net if it exists
+import pickle
+try:
+  with open(autosave_filename, "rb") as input_file:
+    lstm_net = pickle.load(input_file)
+  print("Loaded autosaved model")
+except:
+  print("No autosaved model found")
+
+# Load dataset
 from load_data import load_raw_waves
 raw_data = load_raw_waves()
 x_list = raw_data[2000:12000:100]
@@ -114,15 +127,18 @@ for epoch in range(n_epochs):
       if PLOT_LIVE_STATE:
         plt.figure('live_state')
         plt.pcolor( np.reshape(lstm_net.lstm_node_list[node].state.h, (16, 16)) )
+        plt.tight_layout()
       if PLOT_LIVE_OUTPUT:
         plt.figure('live_output')
         plt.scatter( node, output )
         plt.pause(0.005)
+        plt.tight_layout()
 
     if PLOT_SLIDING_WINDOW:
       plt.figure('data')
       plt.plot(current_window_indices, y_pred)
       plt.pause(0.005)
+      plt.tight_layout()
 
     if PLOT_WEIGHT_STATS:
       allweights = np.hstack( [lstm_net.lstm_param.wg,
@@ -136,7 +152,7 @@ for epoch in range(n_epochs):
       avg_weight_log.append( np.mean(allweights) )
       min_weight_log.append( allweights.min() )
       max_weight_log.append( allweights.max() )
-      plt.figure('weight_stats')
+      plt.figure('weight_stats', figsize=(10,2))
       plt.cla()
       plt.plot(avg_weight_log)
       plt.plot(min_weight_log)
@@ -144,6 +160,7 @@ for epoch in range(n_epochs):
       plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
       for i in range(n_epochs):
         plt.axvline(i*(len(x_list)-backprop_trunc_length))
+      plt.tight_layout()
 
     if PLOT_WEIGHTS:
       allweights = np.hstack( [lstm_net.lstm_param.wg,
@@ -158,6 +175,7 @@ for epoch in range(n_epochs):
       plt.clf()
       plt.pcolor( allweights )
       plt.colorbar()
+      plt.tight_layout()
 #       raw_input("Press any key to backprop")
 
     # Perform backprop on whole sliding window (backwards through nodes)
@@ -170,13 +188,14 @@ for epoch in range(n_epochs):
     loss_log.append( np.sum(np.abs(loss)) )
 
     if PLOT_LOSS_STATS:
-      plt.figure('loss_stats')
+      plt.figure('loss_stats', figsize=(16,2))
       plt.cla()
       plt.plot(loss_log)
       plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
       plt.ylim([0, max(loss_log)])
       for i in range(n_epochs):
         plt.axvline(i*(len(x_list)-backprop_trunc_length))
+      plt.tight_layout()
 
 
 
@@ -194,5 +213,13 @@ for node, index in enumerate(test_indices):
   output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
   test_pred.append( output )
 
+lstm_net.x_list_clear()
+lstm_net.lstm_node_list = []
+
 plt.figure('data')
 plt.plot(test_pred)
+
+import pickle
+with open(autosave_filename, "wb") as output_file:
+  pickle.dump(lstm_net, output_file)
+print("Model autosaved to " + autosave_filename)

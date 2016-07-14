@@ -1,5 +1,6 @@
 # Specific Files #
 ##################
+*.pickle
 
 # Compiled Binaries #
 #####################

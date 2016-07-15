@@ -5,16 +5,22 @@ import numpy as np
 from lstm import LstmParam, LstmNetwork
 
 LEARNING_RATE = 0.1
-MEM_CELL_COUNT = 256
+MEM_CELL_COUNT = 20
+n_epochs = 10
+backprop_trunc_length = 10 # a.k.a sliding window size
+
+X_START = 2000
+X_LENGTH = 100
+X_SKIP = 100
 
 PLOT_LIVE_OUTPUT = False # Slow
-PLOT_LIVE_STATE = False # Slow
-PLOT_WEIGHTS = False # Slow
+PLOT_LIVE_STATE = True # Slow
+PLOT_WEIGHTS = True # Slow
 PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = False
+DEBUG_KEEP_WINDOW_STILL = True
 DEBUG_RANDOM_WINDOW = False
 
 autosave_filename = "lstm_net_autosave.pickle"
@@ -64,7 +70,7 @@ except:
 # Load dataset
 from load_data import load_raw_waves
 raw_data = load_raw_waves()
-x_list = raw_data[2000:12000:100]
+x_list = raw_data[X_START:X_START+(X_LENGTH*X_SKIP):X_SKIP]
 # the output values are the next input values (the LSTM has to predict them)
 y_list = x_list[1:]
 y_list = np.append(y_list, 0)
@@ -79,14 +85,10 @@ plt.plot(x_list)
 plt.pause(0.05)
 
 ## Training
-n_epochs = 10
-backprop_trunc_length = 10 # a.k.a sliding window size
 loss_log = []
 avg_weight_log = []
 min_weight_log = []
 max_weight_log = []
-print("|                                                                                                    |")
-print("|", end="")
 for epoch in range(n_epochs):
 
   plt.figure('data')
@@ -94,7 +96,7 @@ for epoch in range(n_epochs):
   # Prepare the positions the sliding window will jump through
   sliding_window_positions = range(backprop_trunc_length, len(y_list))
   if DEBUG_KEEP_WINDOW_STILL:
-    sliding_window_positions = [30 for i in sliding_window_positions]
+    sliding_window_positions = [70 for i in sliding_window_positions]
   if DEBUG_RANDOM_WINDOW:
     np.random.shuffle(sliding_window_positions)
 
@@ -126,7 +128,7 @@ for epoch in range(n_epochs):
 
       if PLOT_LIVE_STATE:
         plt.figure('live_state')
-        plt.pcolor( np.reshape(lstm_net.lstm_node_list[node].state.h, (16, 16)) )
+        plt.pcolor( np.reshape(lstm_net.lstm_node_list[node].state.h, (2, -1)) )
         plt.tight_layout()
       if PLOT_LIVE_OUTPUT:
         plt.figure('live_output')

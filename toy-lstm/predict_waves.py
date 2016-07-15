@@ -11,13 +11,13 @@ from lstm import LstmParam, LstmNetwork
 Change the following as much as your heart desires
 """
 LEARNING_RATE = 0.1
-MEM_CELL_COUNT = 256
+MEM_CELL_COUNT = 512
 ADD_LSTM_2 = True
-n_epochs = 10
-backprop_trunc_length = 100 # a.k.a sliding window size
+N_EPOCHS = 10
+BPTT_LENGTH = 100 # a.k.a sliding window size
 
 X_START = 2000
-X_LENGTH = 1000
+X_LENGTH = BPTT_LENGTH+100
 X_SKIP = 100
 SCALE_X = False
 
@@ -28,7 +28,7 @@ PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = False
+DEBUG_KEEP_WINDOW_STILL = True
 if DEBUG_KEEP_WINDOW_STILL:
   DEBUG_KEEP_WINDOW_STILL_POS = 0
 DEBUG_RANDOM_WINDOW = False
@@ -105,7 +105,7 @@ y_list = np.append(y_list, 0)
 loss_layer = ToyLossLayer(mem_cell_ct)
 
 # Useful value
-n_window_positions_per_epoch = (len(x_list)-backprop_trunc_length)
+n_window_positions_per_epoch = (len(x_list)-BPTT_LENGTH)
 
 ## Training
 loss_log = []
@@ -113,14 +113,14 @@ epoch_avg_loss_log = []
 avg_weight_log = []
 min_weight_log = []
 max_weight_log = []
-for epoch in range(n_epochs):
+for epoch in range(N_EPOCHS):
 
   plt.figure('data')
   plt.suptitle("Epoch " + str(epoch) )
   # Prepare the positions the sliding window will jump through
-  sliding_window_positions = range(backprop_trunc_length, len(y_list))
+  sliding_window_positions = range(BPTT_LENGTH, len(y_list))
   if DEBUG_KEEP_WINDOW_STILL:
-    sliding_window_positions = [backprop_trunc_length+DEBUG_KEEP_WINDOW_STILL_POS
+    sliding_window_positions = [BPTT_LENGTH+DEBUG_KEEP_WINDOW_STILL_POS
                                 for i in sliding_window_positions]
   if DEBUG_RANDOM_WINDOW:
     np.random.shuffle(sliding_window_positions)
@@ -128,7 +128,7 @@ for epoch in range(n_epochs):
   # Move a sliding window along the whole dataset. Train within the window
   for i_sw, sliding_window_position in enumerate(sliding_window_positions):
     # Create the window
-    current_window_indices = range( sliding_window_position - backprop_trunc_length, sliding_window_position )
+    current_window_indices = range( sliding_window_position - BPTT_LENGTH, sliding_window_position )
     current_window_y_list = y_list[current_window_indices]
 
     # Perform forward prop on whole sliding window, creating nodes as we go
@@ -176,8 +176,8 @@ for epoch in range(n_epochs):
       plt.plot(avg_weight_log)
       plt.plot(min_weight_log)
       plt.plot(max_weight_log)
-      plt.xlim([-10,n_epochs*n_window_positions_per_epoch])
-      for i in range(n_epochs):
+      plt.xlim([-10,N_EPOCHS*n_window_positions_per_epoch])
+      for i in range(N_EPOCHS):
         plt.axvline(i*n_window_positions_per_epoch)
       plt.tight_layout()
 
@@ -222,9 +222,9 @@ for epoch in range(n_epochs):
       plt.plot(loss_log)
       x_axis_positions = (0.5+np.arange(len(epoch_avg_loss_log)))*n_window_positions_per_epoch
       plt.scatter(x_axis_positions, epoch_avg_loss_log)
-      plt.xlim([-10,n_epochs*n_window_positions_per_epoch])
+      plt.xlim([-10,N_EPOCHS*n_window_positions_per_epoch])
       plt.ylim([0, 1.1*max(loss_log)])
-      for i in range(n_epochs):
+      for i in range(N_EPOCHS):
         plt.axvline(i*n_window_positions_per_epoch)
       plt.tight_layout()
 

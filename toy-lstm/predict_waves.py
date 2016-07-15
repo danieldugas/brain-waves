@@ -1,26 +1,29 @@
 from __future__ import print_function
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from lstm import LstmParam, LstmNetwork
 
 LEARNING_RATE = 0.1
-MEM_CELL_COUNT = 20
-n_epochs = 10
-backprop_trunc_length = 10 # a.k.a sliding window size
+MEM_CELL_COUNT = 512
+n_epochs = 100
+backprop_trunc_length = 100 # a.k.a sliding window size
 
 X_START = 2000
-X_LENGTH = 100
+X_LENGTH = backprop_trunc_length+100
 X_SKIP = 100
 
 PLOT_LIVE_OUTPUT = False # Slow
-PLOT_LIVE_STATE = True # Slow
-PLOT_WEIGHTS = True # Slow
+PLOT_LIVE_STATE = False # Slow
+PLOT_WEIGHTS = False # Slow - I recommend reducing the MEM_CELL_COUNT
 PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = True
+DEBUG_KEEP_WINDOW_STILL = False
+if DEBUG_KEEP_WINDOW_STILL:
+  DEBUG_KEEP_WINDOW_STILL_POS = 10
 DEBUG_RANDOM_WINDOW = False
 
 autosave_filename = "lstm_net_autosave.pickle"
@@ -71,21 +74,19 @@ except:
 from load_data import load_raw_waves
 raw_data = load_raw_waves()
 x_list = raw_data[X_START:X_START+(X_LENGTH*X_SKIP):X_SKIP]
+x_list = x_list / max(abs(x_list))
 # the output values are the next input values (the LSTM has to predict them)
 y_list = x_list[1:]
 y_list = np.append(y_list, 0)
 # loss layer
 loss_layer = ToyLossLayer(mem_cell_ct)
 
-## Plot x_list
-import matplotlib.pyplot as plt
-plt.ion()
-plt.figure('data')
-plt.plot(x_list)
-plt.pause(0.05)
+# Useful value
+n_window_positions_per_epoch = (len(x_list)-backprop_trunc_length)
 
 ## Training
 loss_log = []
+epoch_avg_loss_log = []
 avg_weight_log = []
 min_weight_log = []
 max_weight_log = []
@@ -96,7 +97,8 @@ for epoch in range(n_epochs):
   # Prepare the positions the sliding window will jump through
   sliding_window_positions = range(backprop_trunc_length, len(y_list))
   if DEBUG_KEEP_WINDOW_STILL:
-    sliding_window_positions = [70 for i in sliding_window_positions]
+    sliding_window_positions = [backprop_trunc_length+DEBUG_KEEP_WINDOW_STILL_POS
+                                for i in sliding_window_positions]
   if DEBUG_RANDOM_WINDOW:
     np.random.shuffle(sliding_window_positions)
 
@@ -128,7 +130,9 @@ for epoch in range(n_epochs):
 
       if PLOT_LIVE_STATE:
         plt.figure('live_state')
-        plt.pcolor( np.reshape(lstm_net.lstm_node_list[node].state.h, (2, -1)) )
+        plt.clf()
+        plt.pcolor( np.reshape(lstm_net.lstm_node_list[node].state.h, (-1, 1)) )
+        plt.colorbar()
         plt.tight_layout()
       if PLOT_LIVE_OUTPUT:
         plt.figure('live_output')
@@ -139,7 +143,6 @@ for epoch in range(n_epochs):
     if PLOT_SLIDING_WINDOW:
       plt.figure('data')
       plt.plot(current_window_indices, y_pred)
-      plt.pause(0.005)
       plt.tight_layout()
 
     if PLOT_WEIGHT_STATS:
@@ -159,9 +162,9 @@ for epoch in range(n_epochs):
       plt.plot(avg_weight_log)
       plt.plot(min_weight_log)
       plt.plot(max_weight_log)
-      plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
+      plt.xlim([-1,n_epochs*n_window_positions_per_epoch])
       for i in range(n_epochs):
-        plt.axvline(i*(len(x_list)-backprop_trunc_length))
+        plt.axvline(i*n_window_positions_per_epoch)
       plt.tight_layout()
 
     if PLOT_WEIGHTS:
@@ -193,12 +196,18 @@ for epoch in range(n_epochs):
       plt.figure('loss_stats', figsize=(16,2))
       plt.cla()
       plt.plot(loss_log)
-      plt.xlim([0,n_epochs*(len(x_list)-backprop_trunc_length)])
-      plt.ylim([0, max(loss_log)])
+      x_axis_positions = (0.5+np.arange(len(epoch_avg_loss_log)))*n_window_positions_per_epoch
+      plt.scatter(x_axis_positions, epoch_avg_loss_log)
+      plt.xlim([-1,n_epochs*n_window_positions_per_epoch])
+      plt.ylim([0, 1.1*max(loss_log)])
       for i in range(n_epochs):
-        plt.axvline(i*(len(x_list)-backprop_trunc_length))
+        plt.axvline(i*n_window_positions_per_epoch)
       plt.tight_layout()
 
+    plt.pause(0.005)
+
+  if PLOT_LOSS_STATS:
+    epoch_avg_loss_log.append( np.mean(loss_log[-n_window_positions_per_epoch:]) )
 
 
 ## TEST ##
@@ -215,11 +224,11 @@ for node, index in enumerate(test_indices):
   output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
   test_pred.append( output )
 
-lstm_net.x_list_clear()
-lstm_net.lstm_node_list = []
-
 plt.figure('data')
 plt.plot(test_pred)
+
+lstm_net.x_list_clear()
+lstm_net.lstm_node_list = []
 
 import pickle
 with open(autosave_filename, "wb") as output_file:

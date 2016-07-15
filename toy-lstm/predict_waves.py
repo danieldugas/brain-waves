@@ -5,29 +5,37 @@ import matplotlib.pyplot as plt
 
 from lstm import LstmParam, LstmNetwork
 
+## Parameters ##
+################
+"""
+Change the following as much as your heart desires
+"""
 LEARNING_RATE = 0.1
-MEM_CELL_COUNT = 20
+MEM_CELL_COUNT = 256
 ADD_LSTM_2 = True
 n_epochs = 10
-backprop_trunc_length = 10 # a.k.a sliding window size
+backprop_trunc_length = 100 # a.k.a sliding window size
 
 X_START = 2000
-X_LENGTH = backprop_trunc_length+100
+X_LENGTH = 1000
 X_SKIP = 100
+SCALE_X = False
 
 PLOT_LIVE_OUTPUT = False # Slow
 PLOT_LIVE_STATE = False # Slow
-PLOT_WEIGHTS = True # Slow - I recommend reducing the MEM_CELL_COUNT
+PLOT_WEIGHTS = False # Slow - I recommend reducing the MEM_CELL_COUNT
 PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = True
+DEBUG_KEEP_WINDOW_STILL = False
 if DEBUG_KEEP_WINDOW_STILL:
   DEBUG_KEEP_WINDOW_STILL_POS = 0
 DEBUG_RANDOM_WINDOW = False
 
 autosave_filename = "lstm_net_autosave.pickle"
+logpath = "loss_log.txt"
+################
 
 # createst uniform random array w/ values in [a,b) and shape args
 def rand_arr(a, b, *args):
@@ -88,7 +96,8 @@ if ADD_LSTM_2:
 from load_data import load_raw_waves
 raw_data = load_raw_waves()
 x_list = raw_data[X_START:X_START+(X_LENGTH*X_SKIP):X_SKIP]
-x_list = x_list / max(abs(x_list))
+if SCALE_X:
+  x_list = x_list / max(abs(x_list))
 # the output values are the next input values (the LSTM has to predict them)
 y_list = x_list[1:]
 y_list = np.append(y_list, 0)
@@ -179,7 +188,13 @@ for epoch in range(n_epochs):
       plt.pcolor( allweights )
       plt.colorbar()
       plt.tight_layout()
-#       raw_input("Press any key to backprop")
+      if ADD_LSTM_2:
+        allweights2 = lstm2_net.all_weights()
+        plt.figure('weights2')
+        plt.clf()
+        plt.pcolor( allweights2 )
+        plt.colorbar()
+        plt.tight_layout()
 
     # Perform backprop on whole sliding window (backwards through nodes)
     if ADD_LSTM_2:
@@ -245,6 +260,8 @@ if ADD_LSTM_2:
   lstm2_net.x_list_clear()
   lstm2_net.lstm_node_list = []
 
+## Export LSTM ##
+#################
 import pickle
 with open(autosave_filename, "wb") as output_file:
   pickle.dump(lstm_net, output_file)
@@ -253,3 +270,9 @@ if ADD_LSTM_2:
   with open("2" + autosave_filename, "wb") as output_file:
     pickle.dump(lstm2_net, output_file)
   print("Model 2 autosaved to 2" + autosave_filename)
+
+## Export Logs ##
+#################
+with open(logpath, 'w') as outputfile:
+    for value in list(loss_log):
+        outputfile.write(str(value) + "\n")

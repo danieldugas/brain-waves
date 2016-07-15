@@ -41,7 +41,10 @@ class ToyLossLayer:
     def loss(self, pred, label):
         return (self.output(pred) - label) ** 2
 
-    def bottom_diff(self, pred, label):
+    def bottom_diff(self, pred, label, node_index=None):
+        """
+        node_index is unused here. Useful when loss layer is a RNN with several nodes
+        """
         output_error = (self.output(pred) - label)
         diff = 2 * output_error*self.w
         # Apply a little learning to oneself

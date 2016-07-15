@@ -88,8 +88,8 @@ class LstmNode:
 
     def bottom_data_is(self, x, s_prev = None, h_prev = None):
         # if this is the first lstm node in the network
-        if s_prev == None: s_prev = np.zeros_like(self.state.s)
-        if h_prev == None: h_prev = np.zeros_like(self.state.h)
+        if s_prev is None: s_prev = np.zeros_like(self.state.s)
+        if h_prev is None: h_prev = np.zeros_like(self.state.h)
         # save data for use in backprop
         self.s_prev = s_prev
         self.h_prev = h_prev
@@ -157,25 +157,40 @@ class LstmNetwork():
         """
         assert len(y_list) == len(self.x_list)
         idx = len(self.x_list) - 1
-        # first node only gets diffs from label ...
+        # newest node only gets diffs from label ...
         loss = loss_layer.loss(self.lstm_node_list[idx].state.h, y_list[idx])
-        diff_h = loss_layer.bottom_diff(self.lstm_node_list[idx].state.h, y_list[idx])
+        diff_h = loss_layer.bottom_diff(self.lstm_node_list[idx].state.h, y_list[idx], node_index=idx)
         # here s is not affecting loss due to h(t+1), hence we set equal to zero
         diff_s = np.zeros(self.lstm_param.mem_cell_ct)
         self.lstm_node_list[idx].top_diff_is(diff_h, diff_s)
         idx -= 1
 
-        ### ... following nodes also get diffs from next nodes, hence we add diffs to diff_h
+        ### ... older nodes also get diffs from earlier nodes, hence we add diffs to diff_h
         ### we also propagate error along constant error carousel using diff_s
         while idx >= 0:
             loss += loss_layer.loss(self.lstm_node_list[idx].state.h, y_list[idx])
-            diff_h = loss_layer.bottom_diff(self.lstm_node_list[idx].state.h, y_list[idx])
+            diff_h = loss_layer.bottom_diff(self.lstm_node_list[idx].state.h, y_list[idx], node_index=idx)
             diff_h += self.lstm_node_list[idx + 1].state.bottom_diff_h
             diff_s = self.lstm_node_list[idx + 1].state.bottom_diff_s
             self.lstm_node_list[idx].top_diff_is(diff_h, diff_s)
             idx -= 1
 
         return loss
+
+    def loss(self, unused, unused2):
+      """
+      Necessary function to be able to use a LSTM as a loss layer (enabling LSTM stacking)
+      The loss means nothing in this case, and should be calculated at the highest loss layer only
+      """
+      return 0
+
+    def bottom_diff(self, unused, unused2, node_index):
+      """
+      Necessary function to be able to use a LSTM as a loss layer (enabling LSTM stacking)
+      Returns the diff at the input of the LSTM, should be called after y_list_is()
+      """
+      return self.lstm_node_list[node_index].state.bottom_diff_x
+
 
     def x_list_clear(self):
         self.x_list = []
@@ -196,4 +211,14 @@ class LstmNetwork():
             s_prev = self.lstm_node_list[idx - 1].state.s
             h_prev = self.lstm_node_list[idx - 1].state.h
             self.lstm_node_list[idx].bottom_data_is(x, s_prev, h_prev)
+
+    def all_weights(self):
+        return np.hstack( [self.lstm_param.wg,
+                           self.lstm_param.wi,
+                           self.lstm_param.wo,
+                           self.lstm_param.wf,
+                           self.lstm_param.bg[:,None],
+                           self.lstm_param.bi[:,None],
+                           self.lstm_param.bo[:,None],
+                           self.lstm_param.bf[:,None]] )
 

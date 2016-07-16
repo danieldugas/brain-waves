@@ -12,6 +12,8 @@ class DefaultParameters(object):
     Change the following as much as your heart desires
     """
     def __init__(self):
+      self.RAW_DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
+
       self.LEARNING_RATE = 0.1
       self.MEM_CELL_COUNT = 512
       self.ADD_LSTM_2 = True
@@ -35,10 +37,13 @@ class DefaultParameters(object):
         self.DEBUG_KEEP_WINDOW_STILL_POS = 0
       self.DEBUG_RANDOM_WINDOW = True
 
-      self.RAW_DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
       self.AUTOSAVE_FILENAME = "lstm_net_autosave.pickle"
+      self.AUTOSAVE_MODEL_AT_EVERY_EPOCH = False
+
       self.LOGPATH = "loss_log.txt"
       self.LOG_EPOCH_AVG_LOSS_INSTEAD = False
+
+      self.TEST_AND_PLOT_PREDICTION = True
 
 class EulerParameters(DefaultParameters):
     def __init__(self):
@@ -58,6 +63,10 @@ class EulerParameters(DefaultParameters):
       self.RAW_DATA_FOLDER = "/cluster/home/dugasd/"
       #   Log avg loss instead (lighter log)
       self.LOG_EPOCH_AVG_LOSS_INSTEAD = True
+      #   Autosave regularly
+      self.AUTOSAVE_MODEL_AT_EVERY_EPOCH = True
+      #   Training only
+      self.TEST_AND_PLOT_PREDICTION = False
 
 P = DefaultParameters()
 
@@ -287,40 +296,42 @@ for epoch in range(P.N_EPOCHS):
     else:
       for value in list(loss_log):
           outputfile.write(str(value) + "\n")
+  ## Export model
+  is_last_epoch = epoch == (P.N_EPOCHS - 1)
+  if P.AUTOSAVE_MODEL_AT_EVERY_EPOCH or is_last_epoch:
+    import pickle
+    with open(P.AUTOSAVE_FILENAME, "wb") as output_file:
+      pickle.dump(lstm_net, output_file)
+    print("Model autosaved to " + P.AUTOSAVE_FILENAME)
+    if P.ADD_LSTM_2:
+      with open("2" + P.AUTOSAVE_FILENAME, "wb") as output_file:
+        pickle.dump(lstm2_net, output_file)
+      print("Model 2 autosaved to 2" + P.AUTOSAVE_FILENAME)
+
 
 
 ## Testing
-# Create the window
-test_indices = range(len(x_list))
+if P.TEST_AND_PLOT_PREDICTION:
+  # Create the window
+  test_indices = range(len(x_list))
 
-# Perform forward prop
-test_pred = []
-for node, index in enumerate(test_indices):
-  lstm_net.x_list_add(x_list[index])
+  # Perform forward prop
+  test_pred = []
+  for node, index in enumerate(test_indices):
+    lstm_net.x_list_add(x_list[index])
+    if P.ADD_LSTM_2:
+      lstm2_net.x_list_add( lstm_net.lstm_node_list[node].state.h )
+      output = loss_layer.output( lstm2_net.lstm_node_list[node].state.h )
+    else:
+      output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
+    test_pred.append( output )
+
+  plt.figure('data')
+  plt.plot(test_pred)
+
+  lstm_net.x_list_clear()
+  lstm_net.lstm_node_list = []
   if P.ADD_LSTM_2:
-    lstm2_net.x_list_add( lstm_net.lstm_node_list[node].state.h )
-    output = loss_layer.output( lstm2_net.lstm_node_list[node].state.h )
-  else:
-    output = loss_layer.output( lstm_net.lstm_node_list[node].state.h )
-  test_pred.append( output )
-
-plt.figure('data')
-plt.plot(test_pred)
-
-lstm_net.x_list_clear()
-lstm_net.lstm_node_list = []
-if P.ADD_LSTM_2:
-  lstm2_net.x_list_clear()
-  lstm2_net.lstm_node_list = []
-
-## Export LSTM ##
-#################
-import pickle
-with open(P.AUTOSAVE_FILENAME, "wb") as output_file:
-  pickle.dump(lstm_net, output_file)
-print("Model autosaved to " + P.AUTOSAVE_FILENAME)
-if P.ADD_LSTM_2:
-  with open("2" + P.AUTOSAVE_FILENAME, "wb") as output_file:
-    pickle.dump(lstm2_net, output_file)
-  print("Model 2 autosaved to 2" + P.AUTOSAVE_FILENAME)
+    lstm2_net.x_list_clear()
+    lstm2_net.lstm_node_list = []
 

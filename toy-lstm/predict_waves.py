@@ -28,13 +28,15 @@ PLOT_WEIGHT_STATS = False
 PLOT_LOSS_STATS = True
 PLOT_SLIDING_WINDOW = True
 
-DEBUG_KEEP_WINDOW_STILL = True
+DEBUG_KEEP_WINDOW_STILL = False
 if DEBUG_KEEP_WINDOW_STILL:
   DEBUG_KEEP_WINDOW_STILL_POS = 0
-DEBUG_RANDOM_WINDOW = False
+DEBUG_RANDOM_WINDOW = True
 
-autosave_filename = "lstm_net_autosave.pickle"
-logpath = "loss_log.txt"
+RAW_DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
+AUTOSAVE_FILENAME = "lstm_net_autosave.pickle"
+LOGPATH = "loss_log.txt"
+LOG_EPOCH_AVG_LOSS_INSTEAD = False
 ################
 
 # createst uniform random array w/ values in [a,b) and shape args
@@ -79,14 +81,14 @@ if ADD_LSTM_2:
 ## Load net if it exists
 import pickle
 try:
-  with open(autosave_filename, "rb") as input_file:
+  with open(AUTOSAVE_FILENAME, "rb") as input_file:
     lstm_net = pickle.load(input_file)
   print("Loaded autosaved model")
 except:
   print("No autosaved model found")
 if ADD_LSTM_2:
   try:
-    with open("2" + autosave_filename, "rb") as input_file:
+    with open("2" + AUTOSAVE_FILENAME, "rb") as input_file:
       lstm2_net = pickle.load(input_file)
     print("Loaded autosaved model for lstm 2")
   except:
@@ -94,7 +96,7 @@ if ADD_LSTM_2:
 
 # Load dataset
 from load_data import load_raw_waves
-raw_data = load_raw_waves()
+raw_data = load_raw_waves(folder=RAW_DATA_FOLDER)
 x_list = raw_data[X_START:X_START+(X_LENGTH*X_SKIP):X_SKIP]
 if SCALE_X:
   x_list = x_list / max(abs(x_list))
@@ -115,8 +117,9 @@ min_weight_log = []
 max_weight_log = []
 for epoch in range(N_EPOCHS):
 
-  plt.figure('data')
-  plt.suptitle("Epoch " + str(epoch) )
+  if PLOT_SLIDING_WINDOW:
+    plt.figure('data')
+    plt.suptitle("Epoch " + str(epoch) )
   # Prepare the positions the sliding window will jump through
   sliding_window_positions = range(BPTT_LENGTH, len(y_list))
   if DEBUG_KEEP_WINDOW_STILL:
@@ -231,6 +234,14 @@ for epoch in range(N_EPOCHS):
     plt.pause(0.005)
 
   epoch_avg_loss_log.append( np.mean(loss_log[-n_window_positions_per_epoch:]) )
+  ## Export Log
+  with open(LOGPATH, 'w') as outputfile:
+    if LOG_EPOCH_AVG_LOSS_INSTEAD:
+      for value in list(epoch_avg_loss_log):
+          outputfile.write(str(value) + "\n")
+    else:
+      for value in list(loss_log):
+          outputfile.write(str(value) + "\n")
 
 
 ## TEST ##
@@ -263,16 +274,11 @@ if ADD_LSTM_2:
 ## Export LSTM ##
 #################
 import pickle
-with open(autosave_filename, "wb") as output_file:
+with open(AUTOSAVE_FILENAME, "wb") as output_file:
   pickle.dump(lstm_net, output_file)
-print("Model autosaved to " + autosave_filename)
+print("Model autosaved to " + AUTOSAVE_FILENAME)
 if ADD_LSTM_2:
-  with open("2" + autosave_filename, "wb") as output_file:
+  with open("2" + AUTOSAVE_FILENAME, "wb") as output_file:
     pickle.dump(lstm2_net, output_file)
-  print("Model 2 autosaved to 2" + autosave_filename)
+  print("Model 2 autosaved to 2" + AUTOSAVE_FILENAME)
 
-## Export Logs ##
-#################
-with open(logpath, 'w') as outputfile:
-    for value in list(loss_log):
-        outputfile.write(str(value) + "\n")

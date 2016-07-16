@@ -1,4 +1,4 @@
-def load_raw_waves(folder="/home/daniel/Downloads/Raw-Waves/", filename="001_Session1_FilterTrigCh_RawCh.mat"):
+def load_raw_waves(folder="", filename="001_Session1_FilterTrigCh_RawCh.mat"):
   import scipy.io
   # folder = "/home/daniel/Downloads/Waves 37.5 up down/37.5uV up down/"
   # filename = "001_Session1_waves.mat"

@@ -61,6 +61,25 @@ class EulerParameters(DefaultParameters):
 
 P = DefaultParameters()
 
+## Handle Command-line arguments ##
+###################################
+import sys
+argv = sys.argv[:]
+if len(argv) > 1:
+  script_path = argv.pop(0)
+  while len(argv) > 0:
+    arg = argv.pop(0)
+    if arg == "--euler":
+      P = EulerParameters()
+      print("Parameters set for execution on euler cluster")
+    elif arg == "-N_EPOCHS":
+      P.N_EPOCHS = int(argv.pop(0))
+      print("N_EPOCHS set to " + str(P.N_EPOCHS))
+    else:
+      print("WARNING: Ignored unknown argument '" + arg + "'")
+
+## Useful functions and classes ##
+##################################
 
 # createst uniform random array w/ values in [a,b) and shape args
 def rand_arr(a, b, *args):
@@ -92,7 +111,9 @@ class ToyLossLayer:
         return diff
 
 
-# parameters for input data dimension and lstm cell count
+## Start of Execution ##
+########################
+# variables for input data dimension and lstm cell count
 mem_cell_ct = P.MEM_CELL_COUNT
 x_dim = 1
 concat_len = x_dim + mem_cell_ct
@@ -101,6 +122,7 @@ lstm_net = LstmNetwork(lstm_param)
 if P.ADD_LSTM_2:
   lstm2_param = LstmParam(mem_cell_ct, mem_cell_ct) # second lstm input is first lstm state.h
   lstm2_net = LstmNetwork(lstm2_param)
+
 ## Load net if it exists
 import pickle
 try:
@@ -267,10 +289,7 @@ for epoch in range(P.N_EPOCHS):
           outputfile.write(str(value) + "\n")
 
 
-## TEST ##
-##########
-
-
+## Testing
 # Create the window
 test_indices = range(len(x_list))
 

@@ -164,6 +164,8 @@ loss_layer = ToyLossLayer(mem_cell_ct)
 n_window_positions_per_epoch = (len(x_list)-P.BPTT_LENGTH)
 
 ## Training
+from timeit import default_timer as timer
+start_time = timer()
 loss_log = []
 epoch_avg_loss_log = []
 avg_weight_log = []
@@ -171,9 +173,10 @@ min_weight_log = []
 max_weight_log = []
 for epoch in range(P.N_EPOCHS):
 
+  print( "Epoch " + str(epoch) )
   if P.PLOT_SLIDING_WINDOW:
     plt.figure('data')
-    plt.suptitle("Epoch " + str(epoch) )
+    plt.suptitle( "Epoch " + str(epoch) )
   # Prepare the positions the sliding window will jump through
   sliding_window_positions = range(P.BPTT_LENGTH, len(y_list))
   if P.DEBUG_KEEP_WINDOW_STILL:
@@ -335,3 +338,8 @@ if P.TEST_AND_PLOT_PREDICTION:
     lstm2_net.x_list_clear()
     lstm2_net.lstm_node_list = []
 
+# Timekeeping
+end_time = timer()
+execution_time = end_time - start_time
+print("Execution time:")
+print(execution_time)

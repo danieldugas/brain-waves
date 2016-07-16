@@ -76,16 +76,20 @@ import sys
 argv = sys.argv[:]
 if len(argv) > 1:
   script_path = argv.pop(0)
+  if "--euler" in argv:
+    P = EulerParameters()
+    print("Parameters set for execution on euler cluster")
+    argv.remove("--euler")
   while len(argv) > 0:
     arg = argv.pop(0)
-    if arg == "--euler":
-      P = EulerParameters()
-      print("Parameters set for execution on euler cluster")
-    elif arg == "-N_EPOCHS":
+    if arg == "-N_EPOCHS":
       P.N_EPOCHS = int(argv.pop(0))
       print("N_EPOCHS set to " + str(P.N_EPOCHS))
+    elif arg == "-PLOT_WEIGHTS":
+      P.PLOT_WEIGHTS = bool(argv.pop(0))
+      print("PLOT_WEIGHTS set to " + str(P.PLOT_WEIGHTS))
     else:
-      print("WARNING: Ignored unknown argument '" + arg + "'")
+      print("WARNING: Ignored unknown/duplicate argument '" + arg + "'")
 
 ## Useful functions and classes ##
 ##################################

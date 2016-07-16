@@ -6,6 +6,7 @@ import math
 g_overflow_count = 0
 
 def sigmoid(x, called_from=''):
+    old_settings = np.seterr(all='ignore')
     f = 1. / (1 + np.exp(-x))
     if np.isnan(f).any():
       f[np.isnan(f)] == 0
@@ -13,6 +14,7 @@ def sigmoid(x, called_from=''):
     if np.isinf(f).any():
       f[np.isinf(f)] == 10000
       print("Inf!")
+    np.seterr(**old_settings)
     return f
 
 # createst uniform random array w/ values in [a,b) and shape args

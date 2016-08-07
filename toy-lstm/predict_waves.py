@@ -32,10 +32,11 @@ class DefaultParameters(object):
       self.PLOT_LOSS_STATS = True
       self.PLOT_SLIDING_WINDOW = True
 
+      self.DEBUG_REPLACE_X_WITH_SAW_SIGNAL = False
       self.DEBUG_KEEP_WINDOW_STILL = True
       if self.DEBUG_KEEP_WINDOW_STILL:
         self.DEBUG_KEEP_WINDOW_STILL_POS = 0
-        self.DEBUG_KEEP_WINDOW_STILL_CHANGE_POS = True
+        self.DEBUG_KEEP_WINDOW_STILL_BUT_MOVE_BETWEEN_EPOCHS = True
       self.DEBUG_RANDOM_WINDOW = True
 
       self.AUTOSAVE_FILENAME = "lstm_net_autosave.pickle"
@@ -159,6 +160,10 @@ raw_data = load_raw_waves(folder=P.RAW_DATA_FOLDER)
 x_list = raw_data[P.X_START:P.X_START+(P.X_LENGTH*P.X_SKIP):P.X_SKIP]
 if P.SCALE_X:
   x_list = x_list / max(abs(x_list))
+if P.DEBUG_REPLACE_X_WITH_SAW_SIGNAL:
+  up = list(range(10))
+  down = up[::-1]
+  x_list = np.array(((up+down)*10)[:P.X_LENGTH])
 # the output values are the next input values (the LSTM has to predict them)
 y_list = x_list[1:]
 y_list = np.append(y_list, 0)
@@ -179,7 +184,7 @@ max_weight_log = []
 for epoch in range(P.N_EPOCHS):
 
   if P.DEBUG_KEEP_WINDOW_STILL:
-     if P.DEBUG_KEEP_WINDOW_STILL_CHANGE_POS:
+     if P.DEBUG_KEEP_WINDOW_STILL_BUT_MOVE_BETWEEN_EPOCHS:
         P.DEBUG_KEEP_WINDOW_STILL_POS += 10
 
   print( "Epoch " + str(epoch) )
@@ -234,6 +239,8 @@ for epoch in range(P.N_EPOCHS):
       plt.axvline(current_window_indices[-1])
       plt.plot(current_window_indices, y_pred)
       plt.tight_layout()
+      plt.draw()
+      plt.pause(0.005)
 
     if P.PLOT_WEIGHT_STATS:
       allweights = lstm_net.all_weights()
@@ -296,9 +303,8 @@ for epoch in range(P.N_EPOCHS):
       for i in range(P.N_EPOCHS):
         plt.axvline(i*n_window_positions_per_epoch)
       plt.tight_layout()
-
-    plt.draw()
-    plt.pause(0.005)
+      plt.draw()
+      plt.pause(0.005)
 
   epoch_avg_loss_log.append( np.mean(loss_log[-n_window_positions_per_epoch:]) )
   ## Export Log

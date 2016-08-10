@@ -4,9 +4,13 @@ class Batchmaker:
     def __init__(self, data, BPTT_length, examples_per_batch, input_size=1, shuffle_examples=True):
         self.data = data
         self.BPTT_length = BPTT_length
+        assert BPTT_length < len(data)
         self.examples_per_batch = examples_per_batch
         self.input_size = input_size
         # initialize example indices list
+        if examples_per_batch > len(data) - BPTT_length:
+            print("WARNING: more examples per batch than possible examples in all data")
+            self.examples_per_batch = len(data) - BPTT_length
         self.remaining_example_indices = list(range(len(data)-BPTT_length))
         # shuffle list if required
         if shuffle_examples:

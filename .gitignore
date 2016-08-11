@@ -1,6 +1,8 @@
 # Specific Files #
 ##################
 *.pickle
+*/ops_logs/
+*/loss_log.txt
 
 # Compiled Binaries #
 #####################

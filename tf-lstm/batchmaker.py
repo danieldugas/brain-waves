@@ -4,14 +4,15 @@ class Batchmaker:
     def __init__(self, data, BPTT_length, examples_per_batch, input_size=1, shuffle_examples=True):
         self.data = data
         self.BPTT_length = BPTT_length
-        assert BPTT_length < len(data)
+        self.example_length = BPTT_length + 1
+        assert self.example_length < len(data)
         self.examples_per_batch = examples_per_batch
         self.input_size = input_size
         # initialize example indices list
-        if examples_per_batch > len(data) - BPTT_length:
+        if examples_per_batch > len(data) - self.example_length:
             print("WARNING: more examples per batch than possible examples in all data")
-            self.examples_per_batch = len(data) - BPTT_length
-        self.remaining_example_indices = list(range(len(data)-BPTT_length))
+            self.examples_per_batch = len(data) - self.example_length
+        self.remaining_example_indices = list(range(len(data)-self.example_length))
         # shuffle list if required
         if shuffle_examples:
             from random import shuffle
@@ -24,8 +25,8 @@ class Batchmaker:
         for example in range(self.examples_per_batch):
           # Create training example at index i in data.
           i = self.remaining_example_indices.pop(0)
-          unrolled_data = self.data[i:i+self.BPTT_length]
-          for t, value in enumerate(unrolled_data):
+          unrolled_data = self.data[i:i+self.example_length]
+          for t, value in enumerate(unrolled_data[:-1]):
               batch_input_values[t][example, :] = value
           batch_target_values[example, :] = unrolled_data[-1]
 

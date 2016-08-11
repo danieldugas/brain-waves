@@ -3,15 +3,22 @@ import numpy as np
 class Batchmaker:
     def __init__(self, data, BPTT_length, examples_per_batch, input_size=1, shuffle_examples=True):
         self.data = data
+        self.input_size = input_size
+        if input_size != 1:
+            raise NotImplementedError
         self.BPTT_length = BPTT_length
         self.example_length = BPTT_length + 1
         assert self.example_length < len(data)
-        self.examples_per_batch = examples_per_batch
-        self.input_size = input_size
-        # initialize example indices list
+        # examples per batch
+        if examples_per_batch is "max":
+            examples_per_batch = len(data) - self.example_length
+        assert type(examples_per_batch) is int
         if examples_per_batch > len(data) - self.example_length:
             print("WARNING: more examples per batch than possible examples in all data")
             self.examples_per_batch = len(data) - self.example_length
+        else:
+            self.examples_per_batch = examples_per_batch
+        # initialize example indices list
         self.remaining_example_indices = list(range(len(data)-self.example_length))
         # shuffle list if required
         if shuffle_examples:

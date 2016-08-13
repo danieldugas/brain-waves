@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 from __future__ import print_function
 
@@ -9,7 +9,30 @@ import tensorflow as tf
 import numpy as np
 
 
-# In[10]:
+# ## Parameters
+
+# In[ ]:
+
+MATPLOTLIB_SUPPORT = True
+SET_EULER_PARAMETERS = False
+
+# Handle arguments (When executed as .py script)
+import sys
+argv = sys.argv[:]
+if len(argv) > 1:
+  script_path = argv.pop(0)
+  if "--euler" in argv:
+    SET_EULER_PARAMETERS = True
+    MATPLOTLIB_SUPPORT = False
+    print("Parameters set for execution on euler cluster")
+    argv.remove("--euler")
+
+if MATPLOTLIB_SUPPORT:
+  import matplotlib.pyplot as plt
+  get_ipython().magic(u'matplotlib inline')
+
+
+# In[ ]:
 
 BATCH_SIZE = 1000
 TRAINING_DATA_LENGTH = 100000
@@ -25,32 +48,75 @@ VAL_EVERY_N_STEPS = 10
 VAL_STEP_TOLERANCE = 10
 
 BPTT_LENGTH = 100
-NUM_UNITS = 128 # if this is increased, decrease the LEARNING_RATE (don't know why)
+NUM_UNITS = 128
 N_LAYERS = 3
 INPUT_SIZE = 1
 LEARNING_RATE = 0.001
 CLIP_GRADIENTS = 1.0
 SCALE_OUTPUT = 1000.0
 
-SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
+SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model/"
 SAVE_FILE = "model.ckpt"
-SAVE_PATH = SAVE_DIR+SAVE_FILE
-TENSORBOARD_DIR = "./tensorboard"
+TENSORBOARD_DIR = "/home/daniel/tensorboard"
 
-DATA_FOLDER = "/cluster/home/dugasd/"
+DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
 DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
 #DATA_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
 
 
-# In[3]:
+# In[ ]:
+
+if SET_EULER_PARAMETERS:
+    DATA_FOLDER = "/cluster/home/dugasd/"
+    SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
+    TENSORBOARD_DIR = None
+
+# In[ ]:
+
+SAVE_PATH = SAVE_DIR+SAVE_FILE
+
+# ## Datasets
+
+# In[ ]:
+
+import scipy.io
+mat = scipy.io.loadmat(DATA_FOLDER+DATA_FILENAME)
+global raw_wave
+raw_wave = mat.get('data')[0]
+if SCALE_DATA:
+  raw_wave = raw_wave/max(raw_wave)
+raw_wave = raw_wave[::SAMPLING]
+raw_wave = raw_wave[0:]
+assert len(raw_wave) >= TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH
+training_data = raw_wave[:TRAINING_DATA_LENGTH]
+val_data = raw_wave[TRAINING_DATA_LENGTH:][:VAL_DATA_LENGTH]
+test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+
+if MATPLOTLIB_SUPPORT:
+  plt.figure(figsize=(20,10))
+  if SAMPLING > 10:
+      plotting_function = plt.step
+  else:
+      plotting_function = plt.plot
+  plotting_function(range(TRAINING_DATA_LENGTH),training_data,label="training")
+  plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data,label="validation")
+  plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
+                 TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data,label="test")
+  plt.legend()
+print(len(raw_wave)-TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH)
+
+
+# ## Model Initialization
+
+# In[ ]:
 
 ## Create Graph
 tf.reset_default_graph()
 
+preset_batch_size = None
 with tf.name_scope("input_placeholders") as scope:
-  input_placeholders = [tf.placeholder(tf.float32, shape=(None, INPUT_SIZE), name="input"+str(i))
+  input_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, INPUT_SIZE), name="input"+str(i))
                         for i in range(BPTT_LENGTH)]
-  # shape[0] is None instead of BATCH_SIZE to allow for variable batch size
 
 stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(
     [tf.nn.rnn_cell.LSTMCell(NUM_UNITS, state_is_tuple=True)] * N_LAYERS , state_is_tuple=True)
@@ -58,7 +124,7 @@ unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.f
 
 outputs = [tf.mul(cell_output[:, 0:1], tf.constant(SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
-target_placeholder = tf.placeholder(tf.float32, shape=(None, INPUT_SIZE), name="target")
+target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, INPUT_SIZE), name="target")
 
 loss = tf.square(target_placeholder - outputs[-1], name="loss")
 cost = tf.reduce_mean(loss, name="cost")   # average over batch
@@ -74,35 +140,19 @@ if CLIP_GRADIENTS > 0:
 # Initialize session and write graph for visualization.
 sess = tf.Session()
 tf.initialize_all_variables().run(session=sess)
-summary_writer = tf.train.SummaryWriter(TENSORBOARD_DIR, sess.graph)
+if TENSORBOARD_DIR != None:
+  summary_writer = tf.train.SummaryWriter(TENSORBOARD_DIR, sess.graph)
+  print("Tensorboard graph saved.")
 
-print("Session Created")
+print("Session created.")
 
 
-# In[4]:
+# In[ ]:
 
 saver = tf.train.Saver()
 
 
-# In[11]:
-
-import scipy.io
-mat = scipy.io.loadmat(DATA_FOLDER+DATA_FILENAME)
-global raw_wave
-raw_wave = mat.get('data')[0]
-if SCALE_DATA:
-  raw_wave = raw_wave/max(raw_wave)
-raw_wave = raw_wave[::SAMPLING]
-raw_wave = raw_wave[0:]
-assert len(raw_wave) >= TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH
-training_data = raw_wave[:TRAINING_DATA_LENGTH]
-val_data = raw_wave[TRAINING_DATA_LENGTH:][:VAL_DATA_LENGTH]
-test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
-
-print(len(raw_wave)-TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH)
-
-
-# In[6]:
+# In[ ]:
 
 # Restore model weights from previously saved model
 import os
@@ -115,7 +165,7 @@ else:
 
 # ### Training
 
-# In[7]:
+# In[ ]:
 
 from batchmaker import Batchmaker
 
@@ -183,7 +233,7 @@ for step in range(MAX_STEPS):
 print("Training ended.")
 
 
-# In[8]:
+# In[ ]:
 
 # Restore model weights from previously saved model
 import os
@@ -196,7 +246,7 @@ else:
 
 # ### Testing
 
-# In[12]:
+# In[ ]:
 
 from batchmaker import Batchmaker
 test_batchmaker = Batchmaker(test_data, BPTT_LENGTH, "max", shuffle_examples=False)
@@ -209,6 +259,11 @@ feed_dictionary[target_placeholder] = batch_target_values
 # Run session
 cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
 
+if MATPLOTLIB_SUPPORT:
+  plt.figure(figsize=(20,10))
+  plotting_function(range(len(test_data)), test_data, label="test data")
+  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(output_value)),output_value, label="prediction")
+  plt.legend()
 print("Testing cost: ", end='')
 print(cost_value)
 

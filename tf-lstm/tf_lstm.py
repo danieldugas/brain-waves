@@ -35,17 +35,16 @@ if MATPLOTLIB_SUPPORT:
 # In[ ]:
 
 BATCH_SIZE = 1000
-TRAINING_DATA_LENGTH = 100000
-VAL_DATA_LENGTH = 10000
-TEST_DATA_LENGTH = 200
+TRAINING_DATA_LENGTH = 90000
+VAL_DATA_LENGTH = 90000
+TEST_DATA_LENGTH = 90000
 SHUFFLE_TRAINING_EXAMPLES = True
-SCALE_DATA = False
 SAMPLING = 100
 
-MAX_STEPS = 100000
+MAX_STEPS = 1000000
 
-VAL_EVERY_N_STEPS = 10
-VAL_STEP_TOLERANCE = 10
+VAL_EVERY_N_STEPS = 1
+VAL_STEP_TOLERANCE = 100
 
 BPTT_LENGTH = 100
 NUM_UNITS = 128
@@ -61,7 +60,8 @@ TENSORBOARD_DIR = "/home/daniel/tensorboard"
 
 DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
 DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
-#DATA_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
+DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
+DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
 
 
 # In[ ]:
@@ -71,9 +71,11 @@ if SET_EULER_PARAMETERS:
     SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
     TENSORBOARD_DIR = None
 
+
 # In[ ]:
 
 SAVE_PATH = SAVE_DIR+SAVE_FILE
+
 
 # ## Datasets
 
@@ -81,16 +83,37 @@ SAVE_PATH = SAVE_DIR+SAVE_FILE
 
 import scipy.io
 mat = scipy.io.loadmat(DATA_FOLDER+DATA_FILENAME)
-global raw_wave
 raw_wave = mat.get('data')[0]
-if SCALE_DATA:
-  raw_wave = raw_wave/max(raw_wave)
 raw_wave = raw_wave[::SAMPLING]
 raw_wave = raw_wave[0:]
-assert len(raw_wave) >= TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH
+
+if DATA2_FILENAME is not None:
+    mat = scipy.io.loadmat(DATA_FOLDER+DATA2_FILENAME)
+    raw_wave2 = mat.get('data')[0]
+    raw_wave2 = raw_wave2[::SAMPLING]
+    raw_wave2 = raw_wave2[0:]
+if DATA3_FILENAME is not None:
+    mat = scipy.io.loadmat(DATA_FOLDER+DATA3_FILENAME)
+    raw_wave3 = mat.get('data')[0]
+    raw_wave3 = raw_wave3[::SAMPLING]
+    raw_wave3 = raw_wave3[0:]
+    
+    
+# Save some memory
+del mat
+
+# Assign data to datasets.
 training_data = raw_wave[:TRAINING_DATA_LENGTH]
-val_data = raw_wave[TRAINING_DATA_LENGTH:][:VAL_DATA_LENGTH]
-test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+if DATA2_FILENAME is None:
+  val_data = raw_wave[TRAINING_DATA_LENGTH:][:VAL_DATA_LENGTH]
+  test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+else:
+  val_data = raw_wave2[:VAL_DATA_LENGTH]
+  if DATA3_FILENAME is None:
+    test_data = raw_wave2[VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+  else:
+    test_data = raw_wave3[:TEST_DATA_LENGTH]
+
 
 if MATPLOTLIB_SUPPORT:
   plt.figure(figsize=(20,10))

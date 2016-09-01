@@ -1,13 +1,14 @@
 import numpy as np
 
 class Batchmaker:
-    def __init__(self, data, BPTT_length, examples_per_batch, input_size=1, shuffle_examples=True):
+    def __init__(self, data, BPTT_length, examples_per_batch, output_size=1, shuffle_examples=True):
         self.data = data
-        self.input_size = input_size
-        if input_size != 1:
-            raise NotImplementedError
+        self.input_size = 1
+        if len(data[0].shape) == 1:
+            self.input_size = data[0].shape[0]
+        self.output_size = output_size
         self.BPTT_length = BPTT_length
-        self.example_length = BPTT_length + 1
+        self.example_length = BPTT_length + self.output_size
         assert self.example_length < len(data)
         # examples per batch
         if examples_per_batch is "max":
@@ -28,14 +29,20 @@ class Batchmaker:
     def next_batch(self):
         # Create a single batch
         batch_input_values = [np.zeros((self.examples_per_batch, self.input_size)) for _ in range(self.BPTT_length)]
-        batch_target_values = np.zeros((self.examples_per_batch, self.input_size))
-        for example in range(self.examples_per_batch):
-          # Create training example at index i in data.
-          i = self.remaining_example_indices.pop(0)
-          unrolled_data = self.data[i:i+self.example_length]
-          for t, value in enumerate(unrolled_data[:-1]):
-              batch_input_values[t][example, :] = value
-          batch_target_values[example, :] = unrolled_data[-1]
+        batch_target_values = np.zeros((self.examples_per_batch, self.output_size))
+        for i_example in range(self.examples_per_batch):
+          # Create training example at index 'pos' in data.
+          pos = self.remaining_example_indices.pop(0)
+          #   input.
+          unrolled_input_data = self.data[pos:pos+self.BPTT_length]
+          for t, value in enumerate(unrolled_input_data):
+              batch_input_values[t][i_example, :] = value
+          #   target.
+          unrolled_target_data = self.data[pos+self.BPTT_length:][:self.output_size]
+          if self.input_size > 1:
+              batch_target_values[i_example, :] = np.array([electrodes[0] for electrodes in unrolled_target_data])
+          else:
+              batch_target_values[i_example, :] = np.array([electrode for electrode in unrolled_target_data])
 
         return batch_input_values, batch_target_values
 

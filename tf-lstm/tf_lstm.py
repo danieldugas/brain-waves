@@ -30,31 +30,33 @@ if len(argv) > 1:
 if MATPLOTLIB_SUPPORT:
   import matplotlib.pyplot as plt
   get_ipython().magic(u'matplotlib inline')
+  from cycler import cycler
 
 
 # In[ ]:
 
-BATCH_SIZE = 1000
-TRAINING_DATA_LENGTH = 90000
-VAL_DATA_LENGTH = 90000
-TEST_DATA_LENGTH = 90000
+BATCH_SIZE = 10000
+TRAINING_DATA_LENGTH = 900000
+VAL_DATA_LENGTH = 900000
+TEST_DATA_LENGTH = 1000
 SHUFFLE_TRAINING_EXAMPLES = True
-SAMPLING = 100
+SAMPLING = 10
 
-MAX_STEPS = 1000000
+MAX_STEPS = 10000000
 
 VAL_EVERY_N_STEPS = 1
-VAL_STEP_TOLERANCE = 100
+VAL_STEP_TOLERANCE = 10
 
 BPTT_LENGTH = 100
 NUM_UNITS = 128
 N_LAYERS = 3
 INPUT_SIZE = 1
+OUTPUT_SIZE = 100
 LEARNING_RATE = 0.001
 CLIP_GRADIENTS = 1.0
 SCALE_OUTPUT = 1000.0
 
-SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model/"
+SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model2/"
 SAVE_FILE = "model.ckpt"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
 
@@ -98,6 +100,11 @@ if DATA3_FILENAME is not None:
     raw_wave3 = raw_wave3[::SAMPLING]
     raw_wave3 = raw_wave3[0:]
     
+if INPUT_SIZE == 2:
+    #TODO
+    raw_wave = [np.array([val1, val2]) for val1, val2 in zip(raw_wave, raw_wave2)]
+    raw_wave2 = raw_wave[TRAINING_DATA_LENGTH:]
+    raw_wave3 = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:]
     
 # Save some memory
 del mat
@@ -145,11 +152,13 @@ stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(
     [tf.nn.rnn_cell.LSTMCell(NUM_UNITS, state_is_tuple=True)] * N_LAYERS , state_is_tuple=True)
 unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.float32)
 
-outputs = [tf.mul(cell_output[:, 0:1], tf.constant(SCALE_OUTPUT)) for cell_output in unrolled_outputs]
+outputs = [tf.mul(cell_output[:, 0:OUTPUT_SIZE], tf.constant(SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
-target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, INPUT_SIZE), name="target")
+target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, OUTPUT_SIZE), name="target")
 
 loss = tf.square(target_placeholder - outputs[-1], name="loss")
+if OUTPUT_SIZE > 1:
+    loss = tf.reduce_sum(loss, 1) # add together loss for all outputs
 cost = tf.reduce_mean(loss, name="cost")   # average over batch
 # Use ADAM optimizer
 optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(cost)
@@ -200,7 +209,7 @@ val_steps_since_last_improvement = 0
 for step in range(MAX_STEPS):
   # Validation
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
-    val_batchmaker = Batchmaker(val_data, BPTT_LENGTH, "max", shuffle_examples=False)
+    val_batchmaker = Batchmaker(val_data, BPTT_LENGTH, "max", output_size=OUTPUT_SIZE, shuffle_examples=False)
     batch_input_values, batch_target_values = val_batchmaker.next_batch()
     
     # Assign a value to each placeholder.
@@ -233,7 +242,7 @@ for step in range(MAX_STEPS):
         break
             
   # Train on batches
-  training_batchmaker = Batchmaker(training_data, BPTT_LENGTH, BATCH_SIZE, 
+  training_batchmaker = Batchmaker(training_data, BPTT_LENGTH, BATCH_SIZE, output_size=OUTPUT_SIZE, 
                                    shuffle_examples=SHUFFLE_TRAINING_EXAMPLES)
   total_step_cost = 0
   while True:
@@ -255,6 +264,11 @@ for step in range(MAX_STEPS):
 
 print("Training ended.")
 
+if MATPLOTLIB_SUPPORT:
+  plt.figure(figsize=(20,10))
+  plotting_function(step_cost_log, label="step_cost_log")
+  plt.legend()
+
 
 # In[ ]:
 
@@ -271,8 +285,15 @@ else:
 
 # In[ ]:
 
+offset = 0
+
+
+# In[ ]:
+
+REALIGN_OUTPUT = True
+
 from batchmaker import Batchmaker
-test_batchmaker = Batchmaker(test_data, BPTT_LENGTH, "max", shuffle_examples=False)
+test_batchmaker = Batchmaker(test_data, BPTT_LENGTH, "max", output_size=OUTPUT_SIZE, shuffle_examples=False)
 batch_input_values, batch_target_values = test_batchmaker.next_batch()
     
 # Assign a value to each placeholder.
@@ -283,25 +304,70 @@ feed_dictionary[target_placeholder] = batch_target_values
 cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
 
 if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(20,10))
-  plotting_function(range(len(test_data)), test_data, label="test data")
-  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(output_value)),output_value, label="prediction")
+  plt.figure(figsize=(100,10))
+  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0,1,OUTPUT_SIZE)][::-1]))
+  plot_data = np.array(test_data)
+  if INPUT_SIZE > 1:
+    plot_data = plot_data[:,0]
+  plotting_function(range(len(plot_data)), plot_data, label="test data")
+  if REALIGN_OUTPUT:
+    abscisses = np.tile(np.arange(BPTT_LENGTH, BPTT_LENGTH+len(output_value))[:,None], (1,OUTPUT_SIZE))
+    abscisses = abscisses + np.arange(OUTPUT_SIZE)
+  else:
+    abscisses = np.arange(BPTT_LENGTH, BPTT_LENGTH+len(output_value))
+  plotting_function(abscisses, output_value, label="prediction")
   plt.legend()
 print("Testing cost: ", end='')
 print(cost_value)
 
+#Reset test data to normal data
+offset += TEST_DATA_LENGTH
+test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
+
 
 # In[ ]:
 
-#Replace test data with sine wave
-test_data = np.sin(np.linspace(0,10*np.pi,TEST_DATA_LENGTH))
+## Replace test data with sine wave
+test_data = 30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH))
 
 
 # In[ ]:
 
 #Reset test data to normal data
-offset = TEST_DATA_LENGTH
-test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][offset:][:TEST_DATA_LENGTH]
+offset += TEST_DATA_LENGTH
+test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
+
+
+# ## Hallucination
+
+# In[ ]:
+
+HALLUCINATION_LENGTH = 200
+HALLUCINATION_FUTURE = 5
+
+from batchmaker import Batchmaker
+hal_batchmaker = Batchmaker(test_data, BPTT_LENGTH, 1, output_size=OUTPUT_SIZE, shuffle_examples=False)
+batch_input_values, batch_target_values = hal_batchmaker.next_batch()
+
+hal_output = []
+for i in range(HALLUCINATION_LENGTH):
+  # Assign a value to each placeholder.
+  feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
+  feed_dictionary[target_placeholder] = batch_target_values
+
+  # Run session
+  output_value = sess.run(outputs[-1], feed_dict=feed_dictionary)
+  hal_output.append(output_value[0][0])
+
+  batch_input_values.append(batch_input_values.pop(0))
+  batch_input_values[-1][0,:] = np.tile(output_value[0,HALLUCINATION_FUTURE], (1,INPUT_SIZE))
+
+if MATPLOTLIB_SUPPORT:
+  plt.figure(figsize=(20,10))
+  plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
+  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
+  plt.xlim([0,BPTT_LENGTH+len(hal_output)])
+  plt.legend()
 
 
 # In[ ]:

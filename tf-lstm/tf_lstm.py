@@ -35,43 +35,57 @@ if MATPLOTLIB_SUPPORT:
 
 # In[ ]:
 
-BATCH_SIZE = 10000
-TRAINING_DATA_LENGTH = 900000
-VAL_DATA_LENGTH = 900000
+DATA_FOLDER = "/home/daniel/Downloads/Data_200Hz/"
+DATA_FILENAME="077_COSession1.set"
+DATA2_FILENAME="077_COSession2.set"
+ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
+                          'E108','E58','E52','E62','E92','E96','E70','E83','E75']
+BATCH_SIZE = 1000
+TRAINING_DATA_LENGTH = 10000
+VAL_DATA_LENGTH = 10000
 TEST_DATA_LENGTH = 1000
 SHUFFLE_TRAINING_EXAMPLES = True
 SAMPLING = 10
+OFFSET = 0
 
-MAX_STEPS = 10000000
+MAX_STEPS = 1000
 
 VAL_EVERY_N_STEPS = 1
-VAL_STEP_TOLERANCE = 10
+VAL_STEP_TOLERANCE = 3
 
 BPTT_LENGTH = 100
 NUM_UNITS = 128
 N_LAYERS = 3
-INPUT_SIZE = 1
-OUTPUT_SIZE = 100
+INPUT_SIZE = 19
+OUTPUT_SIZE = 5
 LEARNING_RATE = 0.001
 CLIP_GRADIENTS = 1.0
-SCALE_OUTPUT = 1000.0
+SCALE_OUTPUT = 10.0
 
 SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model2/"
 SAVE_FILE = "model.ckpt"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
 
-DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
-DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
-DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
-DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
+#DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
+#DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
+#DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
+#DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
+
+assert INPUT_SIZE == len(ELECTRODES_OF_INTEREST)
 
 
 # In[ ]:
 
 if SET_EULER_PARAMETERS:
-    DATA_FOLDER = "/cluster/home/dugasd/"
+    DATA_FOLDER = "/cluster/home/dugasd/Data_200Hz/"
     SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
     TENSORBOARD_DIR = None
+    
+    BATCH_SIZE = 10000
+    TRAINING_DATA_LENGTH = 100000
+    VAL_DATA_LENGTH = 100000
+    MAX_STEPS = 1000000
+    VAL_STEP_TOLERANCE = 10
 
 
 # In[ ]:
@@ -83,48 +97,96 @@ SAVE_PATH = SAVE_DIR+SAVE_FILE
 
 # In[ ]:
 
-import scipy.io
-mat = scipy.io.loadmat(DATA_FOLDER+DATA_FILENAME)
-raw_wave = mat.get('data')[0]
-raw_wave = raw_wave[::SAMPLING]
-raw_wave = raw_wave[0:]
+if False:
+  raw_wave = []
+  raw_wave2 = []
+  raw_wave3 = []
 
-if DATA2_FILENAME is not None:
-    mat = scipy.io.loadmat(DATA_FOLDER+DATA2_FILENAME)
-    raw_wave2 = mat.get('data')[0]
-    raw_wave2 = raw_wave2[::SAMPLING]
-    raw_wave2 = raw_wave2[0:]
-if DATA3_FILENAME is not None:
-    mat = scipy.io.loadmat(DATA_FOLDER+DATA3_FILENAME)
-    raw_wave3 = mat.get('data')[0]
-    raw_wave3 = raw_wave3[::SAMPLING]
-    raw_wave3 = raw_wave3[0:]
+  import scipy.io
+  mat = scipy.io.loadmat(DATA_FOLDER+DATA_FILENAME)
+  raw_wave = mat.get('data')[0]
+  raw_wave = raw_wave[::SAMPLING]
+  raw_wave = raw_wave[0:]
+
+  if DATA2_FILENAME is not None:
+      mat = scipy.io.loadmat(DATA_FOLDER+DATA2_FILENAME)
+      raw_wave2 = mat.get('data')[0]
+      raw_wave2 = raw_wave2[::SAMPLING]
+      raw_wave2 = raw_wave2[0:]
+  if DATA3_FILENAME is not None:
+      mat = scipy.io.loadmat(DATA_FOLDER+DATA3_FILENAME)
+      raw_wave3 = mat.get('data')[0]
+      raw_wave3 = raw_wave3[::SAMPLING]
+      raw_wave3 = raw_wave3[0:]
     
-if INPUT_SIZE == 2:
-    #TODO
-    raw_wave = [np.array([val1, val2]) for val1, val2 in zip(raw_wave, raw_wave2)]
-    raw_wave2 = raw_wave[TRAINING_DATA_LENGTH:]
-    raw_wave3 = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:]
-    
-# Save some memory
-del mat
+  # Save some memory
+  del mat
+
+
+# In[ ]:
+
+if False:
+  raw_wave = []
+  raw_wave2 = []
+  raw_wave3 = []
+ 
+  import mne
+  raw_eeglab = mne.io.read_raw_eeglab(DATA_FOLDER+DATA_FILENAME)
+  electrode_names = raw_eeglab.ch_names
+  EOI_indices = [electrode_names.index(name) for name in ELECTRODES_OF_INTEREST]
+  raw_wave = np.array([raw_eeglab[e_index][0][0] for e_index in EOI_indices])
+  raw_wave = list(raw_wave.T)
+  raw_wave = raw_wave[::SAMPLING]
+
+  raw_eeglab = mne.io.read_raw_eeglab(DATA_FOLDER+DATA2_FILENAME)
+  electrode_names = raw_eeglab.ch_names
+  EOI_indices = [electrode_names.index(name) for name in ELECTRODES_OF_INTEREST]
+  raw_wave2 = np.array([raw_eeglab[e_index][0][0] for e_index in EOI_indices])
+  raw_wave2 = list(raw_wave2.T)
+  raw_wave2 = raw_wave2[::SAMPLING]
+
+  del raw_eeglab
+
+
+# In[ ]:
+
+if False:
+  np.save(DATA_FOLDER+"raw_wave", raw_wave)
+  np.save(DATA_FOLDER+"raw_wave2", raw_wave2)
+
+
+# In[ ]:
+
+if True:
+  raw_wave  = np.load(DATA_FOLDER+"raw_wave.npy")
+  raw_wave2 = np.load(DATA_FOLDER+"raw_wave2.npy")
+  raw_wave3 = []
+
+
+# In[ ]:
+
+raw_wave  = raw_wave[OFFSET:]/np.mean(np.abs(raw_wave))
+raw_wave2 = raw_wave2[OFFSET:]/np.mean(np.abs(raw_wave2))
+
+
+# In[ ]:
 
 # Assign data to datasets.
 training_data = raw_wave[:TRAINING_DATA_LENGTH]
-if DATA2_FILENAME is None:
+if len(raw_wave2) is 0:
   val_data = raw_wave[TRAINING_DATA_LENGTH:][:VAL_DATA_LENGTH]
   test_data = raw_wave[TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
 else:
   val_data = raw_wave2[:VAL_DATA_LENGTH]
-  if DATA3_FILENAME is None:
+  if len(raw_wave3) is 0:
     test_data = raw_wave2[VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
   else:
     test_data = raw_wave3[:TEST_DATA_LENGTH]
 
 
 if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(20,10))
-  if SAMPLING > 10:
+  plt.figure(figsize=(100,10))
+  if SAMPLING > 1:
       plotting_function = plt.step
   else:
       plotting_function = plt.plot
@@ -132,7 +194,7 @@ if MATPLOTLIB_SUPPORT:
   plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data,label="validation")
   plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
                  TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data,label="test")
-  plt.legend()
+  #plt.legend()
 print(len(raw_wave)-TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH)
 
 
@@ -201,6 +263,7 @@ else:
 
 from batchmaker import Batchmaker
 
+total_step_cost = None
 step_cost_log = []
 val_cost_log = []
 val_steps_since_last_improvement = 0
@@ -219,7 +282,10 @@ for step in range(MAX_STEPS):
     # Train over 1 batch.
     cost_value = sess.run(cost, feed_dict=feed_dictionary)
     print("Validation cost: ", end='')
-    print(cost_value)
+    print(cost_value, end='')
+    print("  (Training cost: ", end='')
+    print(total_step_cost, end='')
+    print(")")
     val_cost_log.append(cost_value)
     
     # Check if cost has improved
@@ -260,13 +326,15 @@ for step in range(MAX_STEPS):
                                                         feed_dict=feed_dictionary)
       total_step_cost += cost_value
       assert not np.isnan(last_output_value).any()
+    step_cost_log.append(total_step_cost)
 
 
 print("Training ended.")
 
 if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(20,10))
-  plotting_function(step_cost_log, label="step_cost_log")
+  plt.figure(figsize=(100,10))
+  plotting_function(range(len(step_cost_log)), step_cost_log, label="step_cost_log")
+  plotting_function(range(len(val_cost_log)), val_cost_log, label="val_cost_log")
   plt.legend()
 
 
@@ -317,12 +385,23 @@ if MATPLOTLIB_SUPPORT:
     abscisses = np.arange(BPTT_LENGTH, BPTT_LENGTH+len(output_value))
   plotting_function(abscisses, output_value, label="prediction")
   plt.legend()
+  if INPUT_SIZE > 1:
+    plt.figure(figsize=(100,10))
+    plot_data = np.array(test_data)[:,1:]
+    plotting_function(range(len(plot_data)), plot_data, label="electrodes")
+    plt.legend()  
 print("Testing cost: ", end='')
 print(cost_value)
 
 #Reset test data to normal data
 offset += TEST_DATA_LENGTH
-test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
+if len(raw_wave2) is 0:
+  test_data = raw_wave[offset:][TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+else:
+  if len(raw_wave3) is 0:
+    test_data = raw_wave2[offset:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+  else:
+    test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
 
 
 # In[ ]:
@@ -335,7 +414,13 @@ test_data = 30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH))
 
 #Reset test data to normal data
 offset += TEST_DATA_LENGTH
-test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
+if len(raw_wave2) is 0:
+  test_data = raw_wave[offset:][TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+else:
+  if len(raw_wave3) is 0:
+    test_data = raw_wave2[offset:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
+  else:
+    test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
 
 
 # ## Hallucination
@@ -343,7 +428,7 @@ test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
 # In[ ]:
 
 HALLUCINATION_LENGTH = 200
-HALLUCINATION_FUTURE = 5
+HALLUCINATION_FUTURE = 4
 
 from batchmaker import Batchmaker
 hal_batchmaker = Batchmaker(test_data, BPTT_LENGTH, 1, output_size=OUTPUT_SIZE, shuffle_examples=False)
@@ -368,6 +453,52 @@ if MATPLOTLIB_SUPPORT:
   plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
   plt.xlim([0,BPTT_LENGTH+len(hal_output)])
   plt.legend()
+
+
+# In[ ]:
+
+from batchmaker import Batchmaker
+hal_batchmaker = Batchmaker(test_data, BPTT_LENGTH, 1, output_size=OUTPUT_SIZE, shuffle_examples=False)
+batch_input_values, batch_target_values = hal_batchmaker.next_batch()
+
+hal_output = []
+# Assign a value to each placeholder.
+feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
+feed_dictionary[target_placeholder] = batch_target_values
+
+# Run session
+output_value = sess.run(outputs[-1], feed_dict=feed_dictionary)
+hal_output = output_value[0,:]
+
+if MATPLOTLIB_SUPPORT:
+  plt.figure(figsize=(20,10))
+  plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
+  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
+  plt.xlim([0,BPTT_LENGTH+len(hal_output)])
+  plt.legend()
+
+
+# ## You've got mail!
+
+# In[ ]:
+
+with open(DATA_FOLDER+"secret.txt") as file:
+    secret=file.read().replace('\n', '')
+
+
+# In[ ]:
+
+import smtplib
+ 
+server = smtplib.SMTP('smtp.gmail.com', 587)
+server.starttls()
+server.login("brainwavesdev@gmail.com", secret)
+ 
+msg = "Waves brained!"
+server.sendmail("brainwavesdev@gmail.com", "brainwavesdev@gmail.com", msg)
+server.quit()
+
+print("Mail sent.")
 
 
 # In[ ]:

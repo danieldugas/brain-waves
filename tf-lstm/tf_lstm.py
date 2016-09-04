@@ -43,9 +43,9 @@ ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45'
 BATCH_SIZE = 1000
 TRAINING_DATA_LENGTH = 10000
 VAL_DATA_LENGTH = 10000
-TEST_DATA_LENGTH = 1000
+TEST_DATA_LENGTH = 10000
 SHUFFLE_TRAINING_EXAMPLES = True
-SAMPLING = 10
+SAMPLING = 1
 OFFSET = 0
 
 MAX_STEPS = 1000
@@ -57,7 +57,7 @@ BPTT_LENGTH = 100
 NUM_UNITS = 128
 N_LAYERS = 3
 INPUT_SIZE = 19
-OUTPUT_SIZE = 5
+OUTPUT_SIZE = 10
 LEARNING_RATE = 0.001
 CLIP_GRADIENTS = 1.0
 SCALE_OUTPUT = 10.0
@@ -82,8 +82,8 @@ if SET_EULER_PARAMETERS:
     TENSORBOARD_DIR = None
     
     BATCH_SIZE = 10000
-    TRAINING_DATA_LENGTH = 100000
-    VAL_DATA_LENGTH = 100000
+    TRAINING_DATA_LENGTH = 200000
+    VAL_DATA_LENGTH = 200000
     MAX_STEPS = 1000000
     VAL_STEP_TOLERANCE = 10
 
@@ -160,13 +160,11 @@ if False:
 if True:
   raw_wave  = np.load(DATA_FOLDER+"raw_wave.npy")
   raw_wave2 = np.load(DATA_FOLDER+"raw_wave2.npy")
+  raw_wave  = raw_wave[::SAMPLING]
+  raw_wave2 = raw_wave2[::SAMPLING]
+  raw_wave  = raw_wave[OFFSET:]/np.mean(np.abs(raw_wave))
+  raw_wave2 = raw_wave2[OFFSET:]/np.mean(np.abs(raw_wave2))
   raw_wave3 = []
-
-
-# In[ ]:
-
-raw_wave  = raw_wave[OFFSET:]/np.mean(np.abs(raw_wave))
-raw_wave2 = raw_wave2[OFFSET:]/np.mean(np.abs(raw_wave2))
 
 
 # In[ ]:
@@ -186,7 +184,7 @@ else:
 
 if MATPLOTLIB_SUPPORT:
   plt.figure(figsize=(100,10))
-  if SAMPLING > 1:
+  if SAMPLING > 0:
       plotting_function = plt.step
   else:
       plotting_function = plt.plot
@@ -195,7 +193,8 @@ if MATPLOTLIB_SUPPORT:
   plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
                  TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data,label="test")
   #plt.legend()
-print(len(raw_wave)-TRAINING_DATA_LENGTH+TEST_DATA_LENGTH+VAL_DATA_LENGTH)
+print(len(raw_wave)-TRAINING_DATA_LENGTH)
+print(len(raw_wave2)-VAL_DATA_LENGTH)
 
 
 # ## Model Initialization
@@ -372,8 +371,8 @@ feed_dictionary[target_placeholder] = batch_target_values
 cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
 
 if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(100,10))
-  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0,1,OUTPUT_SIZE)][::-1]))
+  plt.figure(figsize=(TEST_DATA_LENGTH/100,10))
+  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0.8,0,OUTPUT_SIZE)]))
   plot_data = np.array(test_data)
   if INPUT_SIZE > 1:
     plot_data = plot_data[:,0]
@@ -386,10 +385,12 @@ if MATPLOTLIB_SUPPORT:
   plotting_function(abscisses, output_value, label="prediction")
   plt.legend()
   if INPUT_SIZE > 1:
-    plt.figure(figsize=(100,10))
+    plt.figure(figsize=(TEST_DATA_LENGTH/100,10))
     plot_data = np.array(test_data)[:,1:]
     plotting_function(range(len(plot_data)), plot_data, label="electrodes")
     plt.legend()  
+  print("Offset: ", end='')
+  print(offset)
 print("Testing cost: ", end='')
 print(cost_value)
 

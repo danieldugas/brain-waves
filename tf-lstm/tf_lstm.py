@@ -212,7 +212,7 @@ print(len(raw_wave2)-VAL_DATA_LENGTH)
 
 import os
 if os.path.exists(SAVE_PATH):
-  with open(SAVE_DIR+"model_params.pckl", 'r') as file:
+  with open(SAVE_DIR+"model_params.pckl", 'rb') as file:
     import pickle
     mp_loaded = pickle.load(file)
   if MP != mp_loaded:
@@ -326,7 +326,7 @@ for step in range(MAX_STEPS):
             # save model to disk
             print("Saving ... ", end='')
             save_path = saver.save(sess, SAVE_PATH)
-            with open(SAVE_DIR+mp_filename, 'w') as file:
+            with open(SAVE_DIR+mp_filename, 'wb') as file:
               pickle.dump(MP, file)
             print("Model saved in file: %s" % save_path)      
         else:

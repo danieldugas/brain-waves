@@ -53,16 +53,25 @@ MAX_STEPS = 1000
 VAL_EVERY_N_STEPS = 1
 VAL_STEP_TOLERANCE = 3
 
-BPTT_LENGTH = 100
-NUM_UNITS = 128
-N_LAYERS = 3
-INPUT_SIZE = 19
-OUTPUT_SIZE = 10
-LEARNING_RATE = 0.001
-CLIP_GRADIENTS = 1.0
-SCALE_OUTPUT = 10.0
+class ModelParams:
+  def __init__(self):
+    self.BPTT_LENGTH = 100
+    self.NUM_UNITS = 128
+    self.N_LAYERS = 3
+    self.INPUT_SIZE = 19
+    self.OUTPUT_SIZE = 10
+    self.LEARNING_RATE = 0.001
+    self.CLIP_GRADIENTS = 1.0
+    self.SCALE_OUTPUT = 100.0
+  def __str__(self):
+    return str(self.__dict__)
+  def __eq__(self, other): 
+    return self.__dict__ == other.__dict__
+  def __ne__(self, other):
+    return not self.__eq__(other)
+MP = ModelParams()
 
-SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model2/"
+SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model/"
 SAVE_FILE = "model.ckpt"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
 
@@ -71,7 +80,7 @@ TENSORBOARD_DIR = "/home/daniel/tensorboard"
 #DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
 #DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
 
-assert INPUT_SIZE == len(ELECTRODES_OF_INTEREST)
+assert MP.INPUT_SIZE == len(ELECTRODES_OF_INTEREST)
 
 
 # In[ ]:
@@ -85,7 +94,7 @@ if SET_EULER_PARAMETERS:
     TRAINING_DATA_LENGTH = 200000
     VAL_DATA_LENGTH = 200000
     MAX_STEPS = 1000000
-    VAL_STEP_TOLERANCE = 10
+    VAL_STEP_TOLERANCE = 100
 
 
 # In[ ]:
@@ -201,33 +210,46 @@ print(len(raw_wave2)-VAL_DATA_LENGTH)
 
 # In[ ]:
 
+import os
+if os.path.exists(SAVE_PATH):
+  with open(SAVE_DIR+"model_params.pckl", 'r') as file:
+    import pickle
+    mp_loaded = pickle.load(file)
+  if MP != mp_loaded:
+    print(MP)
+    print(mp_loaded)
+  assert MP == mp_loaded
+
+
+# In[ ]:
+
 ## Create Graph
 tf.reset_default_graph()
 
 preset_batch_size = None
 with tf.name_scope("input_placeholders") as scope:
-  input_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, INPUT_SIZE), name="input"+str(i))
-                        for i in range(BPTT_LENGTH)]
+  input_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.INPUT_SIZE), name="input"+str(i))
+                        for i in range(MP.BPTT_LENGTH)]
 
 stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(
-    [tf.nn.rnn_cell.LSTMCell(NUM_UNITS, state_is_tuple=True)] * N_LAYERS , state_is_tuple=True)
+    [tf.nn.rnn_cell.LSTMCell(MP.NUM_UNITS, state_is_tuple=True)] * MP.N_LAYERS , state_is_tuple=True)
 unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.float32)
 
-outputs = [tf.mul(cell_output[:, 0:OUTPUT_SIZE], tf.constant(SCALE_OUTPUT)) for cell_output in unrolled_outputs]
+outputs = [tf.mul(cell_output[:, 0:MP.OUTPUT_SIZE], tf.constant(MP.SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
-target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, OUTPUT_SIZE), name="target")
+target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, MP.OUTPUT_SIZE), name="target")
 
 loss = tf.square(target_placeholder - outputs[-1], name="loss")
-if OUTPUT_SIZE > 1:
+if MP.OUTPUT_SIZE > 1:
     loss = tf.reduce_sum(loss, 1) # add together loss for all outputs
 cost = tf.reduce_mean(loss, name="cost")   # average over batch
 # Use ADAM optimizer
-optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(cost)
-if CLIP_GRADIENTS > 0:
-  adam = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE)
+optimizer = tf.train.AdamOptimizer(learning_rate=MP.LEARNING_RATE).minimize(cost)
+if MP.CLIP_GRADIENTS > 0:
+  adam = tf.train.AdamOptimizer(learning_rate=MP.LEARNING_RATE)
   gvs = adam.compute_gradients(cost)
-#  capped_gvs = [(tf.clip_by_value(grad, -CLIP_GRADIENTS, CLIP_GRADIENTS), var) for grad, var in gvs]
-  capped_gvs = [(tf.clip_by_norm(grad, CLIP_GRADIENTS), var) for grad, var in gvs]
+#  capped_gvs = [(tf.clip_by_value(grad, -MP.CLIP_GRADIENTS, MP.CLIP_GRADIENTS), var) for grad, var in gvs]
+  capped_gvs = [(tf.clip_by_norm(grad, MP.CLIP_GRADIENTS), var) for grad, var in gvs]
   optimizer = adam.apply_gradients(capped_gvs)
 
 # Initialize session and write graph for visualization.
@@ -243,6 +265,9 @@ print("Session created.")
 # In[ ]:
 
 saver = tf.train.Saver()
+
+import pickle
+mp_filename = "model_params.pckl"
 
 
 # In[ ]:
@@ -271,14 +296,14 @@ val_steps_since_last_improvement = 0
 for step in range(MAX_STEPS):
   # Validation
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
-    val_batchmaker = Batchmaker(val_data, BPTT_LENGTH, "max", output_size=OUTPUT_SIZE, shuffle_examples=False)
+    val_batchmaker = Batchmaker(val_data, MP.BPTT_LENGTH, "max", output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
     batch_input_values, batch_target_values = val_batchmaker.next_batch()
     
     # Assign a value to each placeholder.
     feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
     feed_dictionary[target_placeholder] = batch_target_values
 
-    # Train over 1 batch.
+    # Validate.
     cost_value = sess.run(cost, feed_dict=feed_dictionary)
     print("Validation cost: ", end='')
     print(cost_value, end='')
@@ -287,27 +312,32 @@ for step in range(MAX_STEPS):
     print(")")
     val_cost_log.append(cost_value)
     
-    # Check if cost has improved
+    # Training Monitor
     if len(val_cost_log) > 1:
+        # Save cost log.
+        import os
+        if not os.path.exists(SAVE_DIR):
+            os.makedirs(SAVE_DIR)
+            print("Created directory: %s" % SAVE_DIR)
+        np.savetxt(SAVE_DIR+"val_cost_log.txt", val_cost_log)
+        # Save if cost has improved. Otherwise increment counter.
         if val_cost_log[-1] <  min(val_cost_log[:-1]):
             val_steps_since_last_improvement = 0
             # save model to disk
-            import os
-            if not os.path.exists(SAVE_DIR):
-                os.makedirs(SAVE_DIR)
-                print("Created directory: %s" % SAVE_DIR)
             print("Saving ... ", end='')
             save_path = saver.save(sess, SAVE_PATH)
-            print("Model saved in file: %s" % save_path)
+            with open(SAVE_DIR+mp_filename, 'w') as file:
+              pickle.dump(MP, file)
+            print("Model saved in file: %s" % save_path)      
         else:
-            val_steps_since_last_improvement += 1
+            val_steps_since_last_improvement += 1         
     # Stop training if val_cost hasn't improved in VAL_STEP_TOLERANCE steps
     if val_steps_since_last_improvement > VAL_STEP_TOLERANCE:
         print("Training stopped by validation monitor.")
         break
             
   # Train on batches
-  training_batchmaker = Batchmaker(training_data, BPTT_LENGTH, BATCH_SIZE, output_size=OUTPUT_SIZE, 
+  training_batchmaker = Batchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, output_size=MP.OUTPUT_SIZE, 
                                    shuffle_examples=SHUFFLE_TRAINING_EXAMPLES)
   total_step_cost = 0
   while True:
@@ -329,6 +359,9 @@ for step in range(MAX_STEPS):
 
 
 print("Training ended.")
+
+
+# In[ ]:
 
 if MATPLOTLIB_SUPPORT:
   plt.figure(figsize=(100,10))
@@ -360,7 +393,7 @@ offset = 0
 REALIGN_OUTPUT = True
 
 from batchmaker import Batchmaker
-test_batchmaker = Batchmaker(test_data, BPTT_LENGTH, "max", output_size=OUTPUT_SIZE, shuffle_examples=False)
+test_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, "max", output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
 batch_input_values, batch_target_values = test_batchmaker.next_batch()
     
 # Assign a value to each placeholder.
@@ -371,21 +404,21 @@ feed_dictionary[target_placeholder] = batch_target_values
 cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
 
 if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(TEST_DATA_LENGTH/100,10))
-  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0.8,0,OUTPUT_SIZE)]))
+  plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
+  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0.8,0,MP.OUTPUT_SIZE)]))
   plot_data = np.array(test_data)
-  if INPUT_SIZE > 1:
+  if MP.INPUT_SIZE > 1:
     plot_data = plot_data[:,0]
   plotting_function(range(len(plot_data)), plot_data, label="test data")
   if REALIGN_OUTPUT:
-    abscisses = np.tile(np.arange(BPTT_LENGTH, BPTT_LENGTH+len(output_value))[:,None], (1,OUTPUT_SIZE))
-    abscisses = abscisses + np.arange(OUTPUT_SIZE)
+    abscisses = np.tile(np.arange(MP.BPTT_LENGTH, MP.BPTT_LENGTH+len(output_value))[:,None], (1,MP.OUTPUT_SIZE))
+    abscisses = abscisses + np.arange(MP.OUTPUT_SIZE)
   else:
-    abscisses = np.arange(BPTT_LENGTH, BPTT_LENGTH+len(output_value))
+    abscisses = np.arange(MP.BPTT_LENGTH, MP.BPTT_LENGTH+len(output_value))
   plotting_function(abscisses, output_value, label="prediction")
   plt.legend()
-  if INPUT_SIZE > 1:
-    plt.figure(figsize=(TEST_DATA_LENGTH/100,10))
+  if MP.INPUT_SIZE > 1:
+    plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
     plot_data = np.array(test_data)[:,1:]
     plotting_function(range(len(plot_data)), plot_data, label="electrodes")
     plt.legend()  
@@ -432,7 +465,7 @@ HALLUCINATION_LENGTH = 200
 HALLUCINATION_FUTURE = 4
 
 from batchmaker import Batchmaker
-hal_batchmaker = Batchmaker(test_data, BPTT_LENGTH, 1, output_size=OUTPUT_SIZE, shuffle_examples=False)
+hal_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, 1, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
 batch_input_values, batch_target_values = hal_batchmaker.next_batch()
 
 hal_output = []
@@ -446,20 +479,20 @@ for i in range(HALLUCINATION_LENGTH):
   hal_output.append(output_value[0][0])
 
   batch_input_values.append(batch_input_values.pop(0))
-  batch_input_values[-1][0,:] = np.tile(output_value[0,HALLUCINATION_FUTURE], (1,INPUT_SIZE))
+  batch_input_values[-1][0,:] = np.tile(output_value[0,HALLUCINATION_FUTURE], (1,MP.INPUT_SIZE))
 
 if MATPLOTLIB_SUPPORT:
   plt.figure(figsize=(20,10))
   plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
-  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
-  plt.xlim([0,BPTT_LENGTH+len(hal_output)])
+  plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
+  plt.xlim([0,MP.BPTT_LENGTH+len(hal_output)])
   plt.legend()
 
 
 # In[ ]:
 
 from batchmaker import Batchmaker
-hal_batchmaker = Batchmaker(test_data, BPTT_LENGTH, 1, output_size=OUTPUT_SIZE, shuffle_examples=False)
+hal_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, 1, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
 batch_input_values, batch_target_values = hal_batchmaker.next_batch()
 
 hal_output = []
@@ -474,8 +507,8 @@ hal_output = output_value[0,:]
 if MATPLOTLIB_SUPPORT:
   plt.figure(figsize=(20,10))
   plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
-  plotting_function(range(BPTT_LENGTH,BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
-  plt.xlim([0,BPTT_LENGTH+len(hal_output)])
+  plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
+  plt.xlim([0,MP.BPTT_LENGTH+len(hal_output)])
   plt.legend()
 
 
@@ -489,17 +522,18 @@ with open(DATA_FOLDER+"secret.txt") as file:
 
 # In[ ]:
 
-import smtplib
+if not SET_EULER_PARAMETERS:
+  import smtplib
+   
+  server = smtplib.SMTP('smtp.gmail.com', 587)
+  server.starttls()
+  server.login("brainwavesdev@gmail.com", secret)
  
-server = smtplib.SMTP('smtp.gmail.com', 587)
-server.starttls()
-server.login("brainwavesdev@gmail.com", secret)
- 
-msg = "Waves brained!"
-server.sendmail("brainwavesdev@gmail.com", "brainwavesdev@gmail.com", msg)
-server.quit()
+  msg = "Waves brained!"
+  server.sendmail("brainwavesdev@gmail.com", "brainwavesdev@gmail.com", msg)
+  server.quit()
 
-print("Mail sent.")
+  print("Mail sent.")
 
 
 # In[ ]:

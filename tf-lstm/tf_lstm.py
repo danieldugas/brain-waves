@@ -29,7 +29,7 @@ if len(argv) > 1:
 
 if MATPLOTLIB_SUPPORT:
   import matplotlib.pyplot as plt
-  get_ipython().magic(u'matplotlib inline')
+  get_ipython().magic('matplotlib inline')
   from cycler import cycler
 
 
@@ -327,7 +327,7 @@ for step in range(MAX_STEPS):
             print("Saving ... ", end='')
             save_path = saver.save(sess, SAVE_PATH)
             with open(SAVE_DIR+mp_filename, 'wb') as file:
-              pickle.dump(MP, file)
+              pickle.dump(MP, file, protocol=2)
             print("Model saved in file: %s" % save_path)      
         else:
             val_steps_since_last_improvement += 1         
@@ -355,7 +355,7 @@ for step in range(MAX_STEPS):
                                                         feed_dict=feed_dictionary)
       total_step_cost += cost_value
       assert not np.isnan(last_output_value).any()
-    step_cost_log.append(total_step_cost)
+  step_cost_log.append(total_step_cost)
 
 
 print("Training ended.")

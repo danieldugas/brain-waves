@@ -13,7 +13,7 @@ import numpy as np
 
 # In[ ]:
 
-MATPLOTLIB_SUPPORT = True
+PLOTTING_SUPPORT = True
 SET_EULER_PARAMETERS = False
 
 # Handle arguments (When executed as .py script)
@@ -23,11 +23,11 @@ if len(argv) > 1:
   script_path = argv.pop(0)
   if "--euler" in argv:
     SET_EULER_PARAMETERS = True
-    MATPLOTLIB_SUPPORT = False
+    PLOTTING_SUPPORT = False
     print("Parameters set for execution on euler cluster")
     argv.remove("--euler")
 
-if MATPLOTLIB_SUPPORT:
+if PLOTTING_SUPPORT:
   import matplotlib.pyplot as plt
   get_ipython().magic(u'matplotlib inline')
   from cycler import cycler
@@ -41,11 +41,12 @@ DATA2_FILENAME="077_COSession2.set"
 ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
 BATCH_SIZE = 1000
+VAL_BATCH_SIZE = "max"
 TRAINING_DATA_LENGTH = 10000
 VAL_DATA_LENGTH = 10000
 TEST_DATA_LENGTH = 10000
 SHUFFLE_TRAINING_EXAMPLES = True
-SAMPLING = 2
+SAMPLING = 1
 OFFSET = 0
 
 MAX_STEPS = 1000
@@ -74,7 +75,6 @@ MP = ModelParams()
 SAVE_DIR = "/home/daniel/Desktop/tf-lstm-model/"
 SAVE_FILE = "model.ckpt"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
-
 #DATA_FOLDER = "/home/daniel/Downloads/Raw-Waves/"
 #DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
 #DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
@@ -91,6 +91,7 @@ if SET_EULER_PARAMETERS:
     TENSORBOARD_DIR = None
     
     BATCH_SIZE = 10000
+    VAL_BATCH_SIZE = 100000
     TRAINING_DATA_LENGTH = "max"
     VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
@@ -201,8 +202,8 @@ else:
     test_data = raw_wave3[:TEST_DATA_LENGTH]
 
 
-if MATPLOTLIB_SUPPORT:
-  plt.figure(figsize=(100,10))
+if PLOTTING_SUPPORT:
+  plt.figure(figsize=(100,1), dpi=100)
   if SAMPLING > 0:
       plotting_function = plt.step
   else:
@@ -300,28 +301,35 @@ from batchmaker import Batchmaker
 
 total_step_cost = None
 step_cost_log = []
+total_val_cost = 0
 val_cost_log = []
 val_steps_since_last_improvement = 0
 
 # single step
 for step in range(MAX_STEPS):
   # Validation
+  val_batchmaker = Batchmaker(val_data, MP.BPTT_LENGTH, VAL_BATCH_SIZE, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
-    val_batchmaker = Batchmaker(val_data, MP.BPTT_LENGTH, "max", output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
-    batch_input_values, batch_target_values = val_batchmaker.next_batch()
+    total_val_cost = 0
+    while True:
+      if val_batchmaker.is_depleted():
+        break
+      else:
+        batch_input_values, batch_target_values = val_batchmaker.next_batch()
     
-    # Assign a value to each placeholder.
-    feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-    feed_dictionary[target_placeholder] = batch_target_values
+        # Assign a value to each placeholder.
+        feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
+        feed_dictionary[target_placeholder] = batch_target_values
 
-    # Validate.
-    cost_value = sess.run(cost, feed_dict=feed_dictionary)
+       # Validate.
+        cost_value = sess.run(cost, feed_dict=feed_dictionary)
+        total_val_cost += cost_value
     print("Validation cost: ", end='')
-    print(cost_value, end='')
+    print(total_val_cost, end='')
     print("  (Training cost: ", end='')
     print(total_step_cost, end='')
     print(")")
-    val_cost_log.append(cost_value)
+    val_cost_log.append(total_val_cost)
     
     # Training Monitor
     if len(val_cost_log) > 1:
@@ -374,7 +382,7 @@ print("Training ended.")
 
 # In[ ]:
 
-if MATPLOTLIB_SUPPORT:
+if PLOTTING_SUPPORT:
   plt.figure(figsize=(100,10))
   plotting_function(range(len(step_cost_log)), step_cost_log, label="step_cost_log")
   plotting_function(range(len(val_cost_log)), val_cost_log, label="val_cost_log")
@@ -414,7 +422,7 @@ feed_dictionary[target_placeholder] = batch_target_values
 # Run session
 cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
 
-if MATPLOTLIB_SUPPORT:
+if PLOTTING_SUPPORT:
   plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
   plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0.8,0,MP.OUTPUT_SIZE)]))
   plot_data = np.array(test_data)
@@ -492,7 +500,7 @@ for i in range(HALLUCINATION_LENGTH):
   batch_input_values.append(batch_input_values.pop(0))
   batch_input_values[-1][0,:] = np.tile(output_value[0,HALLUCINATION_FUTURE], (1,MP.INPUT_SIZE))
 
-if MATPLOTLIB_SUPPORT:
+if PLOTTING_SUPPORT:
   plt.figure(figsize=(20,10))
   plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
   plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
@@ -515,7 +523,7 @@ feed_dictionary[target_placeholder] = batch_target_values
 output_value = sess.run(outputs[-1], feed_dict=feed_dictionary)
 hal_output = output_value[0,:]
 
-if MATPLOTLIB_SUPPORT:
+if PLOTTING_SUPPORT:
   plt.figure(figsize=(20,10))
   plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
   plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")

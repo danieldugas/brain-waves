@@ -29,7 +29,7 @@ if len(argv) > 1:
 
 if MATPLOTLIB_SUPPORT:
   import matplotlib.pyplot as plt
-  get_ipython().magic('matplotlib inline')
+  get_ipython().magic(u'matplotlib inline')
   from cycler import cycler
 
 
@@ -45,7 +45,7 @@ TRAINING_DATA_LENGTH = 10000
 VAL_DATA_LENGTH = 10000
 TEST_DATA_LENGTH = 10000
 SHUFFLE_TRAINING_EXAMPLES = True
-SAMPLING = 1
+SAMPLING = 2
 OFFSET = 0
 
 MAX_STEPS = 1000
@@ -91,8 +91,8 @@ if SET_EULER_PARAMETERS:
     TENSORBOARD_DIR = None
     
     BATCH_SIZE = 10000
-    TRAINING_DATA_LENGTH = 200000
-    VAL_DATA_LENGTH = 200000
+    TRAINING_DATA_LENGTH = "max"
+    VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
     VAL_STEP_TOLERANCE = 100
 
@@ -171,9 +171,19 @@ if True:
   raw_wave2 = np.load(DATA_FOLDER+"raw_wave2.npy")
   raw_wave  = raw_wave[::SAMPLING]
   raw_wave2 = raw_wave2[::SAMPLING]
-  raw_wave  = raw_wave[OFFSET:]/np.mean(np.abs(raw_wave))
-  raw_wave2 = raw_wave2[OFFSET:]/np.mean(np.abs(raw_wave2))
+  raw_wave  = raw_wave[OFFSET:]*1000000
+  raw_wave2 = raw_wave2[OFFSET:]*1000000
   raw_wave3 = []
+
+
+# In[ ]:
+
+if TRAINING_DATA_LENGTH == "max":
+    TRAINING_DATA_LENGTH = len(raw_wave)
+if VAL_DATA_LENGTH == "max":
+    assert raw_wave2 is not []
+    VAL_DATA_LENGTH = len(raw_wave2) - TEST_DATA_LENGTH
+assert TRAINING_DATA_LENGTH + VAL_DATA_LENGTH + TEST_DATA_LENGTH <= len(raw_wave) + len(raw_wave2) + len(raw_wave3)
 
 
 # In[ ]:
@@ -201,6 +211,7 @@ if MATPLOTLIB_SUPPORT:
   plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data,label="validation")
   plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
                  TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data,label="test")
+  plt.ylim([-100,100])
   #plt.legend()
 print(len(raw_wave)-TRAINING_DATA_LENGTH)
 print(len(raw_wave2)-VAL_DATA_LENGTH)

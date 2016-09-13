@@ -27,11 +27,6 @@ if len(argv) > 1:
     print("Parameters set for execution on euler cluster")
     argv.remove("--euler")
 
-if PLOTTING_SUPPORT:
-  import matplotlib.pyplot as plt
-  get_ipython().magic(u'matplotlib inline')
-  from cycler import cycler
-
 
 # In[ ]:
 
@@ -40,12 +35,11 @@ DATA_FILENAME="077_COSession1.set"
 DATA2_FILENAME="077_COSession2.set"
 ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
-BATCH_SIZE = 1000
-VAL_BATCH_SIZE = "max"
-TRAINING_DATA_LENGTH = 10000
-VAL_DATA_LENGTH = 10000
-TEST_DATA_LENGTH = 10000
-SHUFFLE_TRAINING_EXAMPLES = True
+BATCH_SIZE = 100
+TRAINING_DATA_LENGTH = 1000
+VAL_DATA_LENGTH = 1000
+TEST_DATA_LENGTH = 1000
+SHUFFLE_TRAINING_EXAMPLES = False
 SAMPLING = 1
 OFFSET = 0
 
@@ -64,6 +58,7 @@ class ModelParams:
     self.LEARNING_RATE = 0.001
     self.CLIP_GRADIENTS = 1.0
     self.SCALE_OUTPUT = 100.0
+    self.DROPOUT = 1.0
   def __str__(self):
     return str(self.__dict__)
   def __eq__(self, other): 
@@ -91,11 +86,22 @@ if SET_EULER_PARAMETERS:
     TENSORBOARD_DIR = None
     
     BATCH_SIZE = 10000
-    VAL_BATCH_SIZE = 100000
     TRAINING_DATA_LENGTH = "max"
     VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
     VAL_STEP_TOLERANCE = 100
+
+
+# In[ ]:
+
+if PLOTTING_SUPPORT:
+  import matplotlib.pyplot as plt
+  get_ipython().magic('matplotlib inline')
+  from cycler import cycler
+  if SAMPLING > 0:
+      plotting_function = plt.step
+  else:
+      plotting_function = plt.plot
 
 
 # In[ ]:
@@ -182,7 +188,7 @@ if True:
 if TRAINING_DATA_LENGTH == "max":
     TRAINING_DATA_LENGTH = len(raw_wave)
 if VAL_DATA_LENGTH == "max":
-    assert raw_wave2 is not []
+    assert len(raw_wave2) != 0
     VAL_DATA_LENGTH = len(raw_wave2) - TEST_DATA_LENGTH
 assert TRAINING_DATA_LENGTH + VAL_DATA_LENGTH + TEST_DATA_LENGTH <= len(raw_wave) + len(raw_wave2) + len(raw_wave3)
 
@@ -203,19 +209,22 @@ else:
 
 
 if PLOTTING_SUPPORT:
-  plt.figure(figsize=(100,1), dpi=100)
-  if SAMPLING > 0:
-      plotting_function = plt.step
-  else:
-      plotting_function = plt.plot
-  plotting_function(range(TRAINING_DATA_LENGTH),training_data,label="training")
-  plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data,label="validation")
+  plt.figure(figsize=(500,10))
+  plotting_function(range(TRAINING_DATA_LENGTH),training_data[:,0],label="training")
+  plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data[:,0],label="validation")
   plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
-                 TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data,label="test")
+                 TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data[:,0],label="test")
+  plt.ylim([-1000,1000])
+  plt.figure(figsize=(500,10))
+  plotting_function(range(TRAINING_DATA_LENGTH),training_data[:,0],label="training")
+  plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data[:,0],label="validation")
+  plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
+                 TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data[:,0],label="test")
+  plt.xlim([0, 100000])
   plt.ylim([-100,100])
   #plt.legend()
 print(len(raw_wave)-TRAINING_DATA_LENGTH)
-print(len(raw_wave2)-VAL_DATA_LENGTH)
+print(len(raw_wave2)-VAL_DATA_LENGTH-TEST_DATA_LENGTH)
 
 
 # ## Model Initialization
@@ -239,13 +248,20 @@ if os.path.exists(SAVE_PATH):
 tf.reset_default_graph()
 
 preset_batch_size = None
+# Placeholders
 with tf.name_scope("input_placeholders") as scope:
   input_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.INPUT_SIZE), name="input"+str(i))
                         for i in range(MP.BPTT_LENGTH)]
+dropout_placeholder = tf.placeholder(tf.float32, name="dropout_prob")
+c_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="c_state"+str(i)) for i in range(MP.N_LAYERS)]
+h_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="h_state"+str(i)) for i in range(MP.N_LAYERS)]
+initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) for c_state, h_state in zip(c_state_placeholders, h_state_placeholders))
 
 stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(
-    [tf.nn.rnn_cell.LSTMCell(MP.NUM_UNITS, state_is_tuple=True)] * MP.N_LAYERS , state_is_tuple=True)
-unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.float32)
+    [tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.LSTMCell(MP.NUM_UNITS, state_is_tuple=True),
+                                   output_keep_prob=dropout_placeholder)] * MP.N_LAYERS,
+                                           state_is_tuple=True)
+unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.float32, initial_state=initial_state)
 
 outputs = [tf.mul(cell_output[:, 0:MP.OUTPUT_SIZE], tf.constant(MP.SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
@@ -297,7 +313,7 @@ else:
 
 # In[ ]:
 
-from batchmaker import Batchmaker
+from batchmaker import StatefulBatchmaker
 
 total_step_cost = None
 step_cost_log = []
@@ -308,7 +324,9 @@ val_steps_since_last_improvement = 0
 # single step
 for step in range(MAX_STEPS):
   # Validation
-  val_batchmaker = Batchmaker(val_data, MP.BPTT_LENGTH, VAL_BATCH_SIZE, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
+  val_batchmaker = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
+  prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
+  prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
     total_val_cost = 0
     while True:
@@ -320,10 +338,17 @@ for step in range(MAX_STEPS):
         # Assign a value to each placeholder.
         feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
         feed_dictionary[target_placeholder] = batch_target_values
+        feed_dictionary[dropout_placeholder] = 1.0
+        for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
+            feed_dictionary[c_state_placeholder] = prev_batch_c_state
+        for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
+            feed_dictionary[h_state_placeholder] = prev_batch_h_state
 
        # Validate.
-        cost_value = sess.run(cost, feed_dict=feed_dictionary)
+        cost_value, state_value = sess.run((cost, state), feed_dict=feed_dictionary)
         total_val_cost += cost_value
+        prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
+        prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
     print("Validation cost: ", end='')
     print(total_val_cost, end='')
     print("  (Training cost: ", end='')
@@ -356,9 +381,10 @@ for step in range(MAX_STEPS):
         break
             
   # Train on batches
-  training_batchmaker = Batchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, output_size=MP.OUTPUT_SIZE, 
-                                   shuffle_examples=SHUFFLE_TRAINING_EXAMPLES)
+  training_batchmaker = StatefulBatchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
   total_step_cost = 0
+  prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
+  prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   while True:
     if training_batchmaker.is_depleted():
       break
@@ -368,11 +394,18 @@ for step in range(MAX_STEPS):
       # Assign a value to each placeholder.
       feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
       feed_dictionary[target_placeholder] = batch_target_values
+      feed_dictionary[dropout_placeholder] = MP.DROPOUT
+      for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
+        feed_dictionary[c_state_placeholder] = prev_batch_c_state
+      for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
+        feed_dictionary[h_state_placeholder] = prev_batch_h_state
   
       # Train over 1 batch.
-      opt_value, last_output_value, cost_value = sess.run((optimizer, outputs[-1], cost),
-                                                        feed_dict=feed_dictionary)
+      opt_value, last_output_value, cost_value, state_value = sess.run((optimizer, outputs[-1], cost, state),
+                                                              feed_dict=feed_dictionary)
       total_step_cost += cost_value
+      prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
+      prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
       assert not np.isnan(last_output_value).any()
   step_cost_log.append(total_step_cost)
 
@@ -411,16 +444,34 @@ offset = 0
 
 REALIGN_OUTPUT = True
 
-from batchmaker import Batchmaker
-test_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, "max", output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
-batch_input_values, batch_target_values = test_batchmaker.next_batch()
-    
-# Assign a value to each placeholder.
-feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-feed_dictionary[target_placeholder] = batch_target_values
+from batchmaker import StatefulBatchmaker
+test_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZE, True)
 
-# Run session
-cost_value, output_value = sess.run((cost, outputs[-1]), feed_dict=feed_dictionary)
+
+testing_cost = 0
+prev_batch_c_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
+prev_batch_h_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
+while True:
+  if test_batchmaker.is_depleted():
+    break
+  else:
+    batch_input_values, batch_target_values = test_batchmaker.next_batch()
+    
+    # Assign a value to each placeholder.
+    feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
+    feed_dictionary[target_placeholder] = batch_target_values
+    feed_dictionary[dropout_placeholder] = 1.0
+    for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
+      feed_dictionary[c_state_placeholder] = prev_batch_c_state
+    for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
+      feed_dictionary[h_state_placeholder] = prev_batch_h_state
+
+    # Test over 1 batch.
+    last_output_value, cost_value, state_value = sess.run((outputs[-1], cost, state), feed_dict=feed_dictionary)
+    testing_cost += cost_value
+    prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
+    prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
+    assert not np.isnan(last_output_value).any()   
 
 if PLOTTING_SUPPORT:
   plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
@@ -444,7 +495,7 @@ if PLOTTING_SUPPORT:
   print("Offset: ", end='')
   print(offset)
 print("Testing cost: ", end='')
-print(cost_value)
+print(testing_cost)
 
 #Reset test data to normal data
 offset += TEST_DATA_LENGTH
@@ -455,6 +506,21 @@ else:
     test_data = raw_wave2[offset:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
   else:
     test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
+
+
+# In[ ]:
+
+if False:
+  if PLOTTING_SUPPORT:
+    from IPython import display
+    for i in range(output_value.shape[0]):
+      plotting_function(range(10), batch_target_values[i], label='target')
+      plotting_function(range(10), output_value[i], label='prediction')
+      plt.legend()
+      plt.ylim([-10,10])
+      plt.show()
+      plt.pause(0.01)
+      display.clear_output(wait=True)
 
 
 # In[ ]:
@@ -483,8 +549,10 @@ else:
 HALLUCINATION_LENGTH = 200
 HALLUCINATION_FUTURE = 4
 
-from batchmaker import Batchmaker
-hal_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, 1, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
+from batchmaker import StatefulBatchmaker
+hal_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZE, True)
+prev_batch_c_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
+prev_batch_h_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 batch_input_values, batch_target_values = hal_batchmaker.next_batch()
 
 hal_output = []
@@ -492,36 +560,21 @@ for i in range(HALLUCINATION_LENGTH):
   # Assign a value to each placeholder.
   feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
   feed_dictionary[target_placeholder] = batch_target_values
+  feed_dictionary[dropout_placeholder] = 1.0
+  for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
+    feed_dictionary[c_state_placeholder] = prev_batch_c_state
+  for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
+    feed_dictionary[h_state_placeholder] = prev_batch_h_state
 
   # Run session
-  output_value = sess.run(outputs[-1], feed_dict=feed_dictionary)
-  hal_output.append(output_value[0][0])
+  output_value, state_value = sess.run((outputs[-1], state), feed_dict=feed_dictionary)
+  hal_output.append(output_value[0,HALLUCINATION_FUTURE])
 
-  batch_input_values.append(batch_input_values.pop(0))
-  batch_input_values[-1][0,:] = np.tile(output_value[0,HALLUCINATION_FUTURE], (1,MP.INPUT_SIZE))
+  prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
+  prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
 
-if PLOTTING_SUPPORT:
-  plt.figure(figsize=(20,10))
-  plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
-  plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
-  plt.xlim([0,MP.BPTT_LENGTH+len(hal_output)])
-  plt.legend()
-
-
-# In[ ]:
-
-from batchmaker import Batchmaker
-hal_batchmaker = Batchmaker(test_data, MP.BPTT_LENGTH, 1, output_size=MP.OUTPUT_SIZE, shuffle_examples=False)
-batch_input_values, batch_target_values = hal_batchmaker.next_batch()
-
-hal_output = []
-# Assign a value to each placeholder.
-feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-feed_dictionary[target_placeholder] = batch_target_values
-
-# Run session
-output_value = sess.run(outputs[-1], feed_dict=feed_dictionary)
-hal_output = output_value[0,:]
+  batch_input_values, batch_target_values = hal_batchmaker.next_batch()
+  batch_input_values[-1][0,0] = output_value[0,0]
 
 if PLOTTING_SUPPORT:
   plt.figure(figsize=(20,10))

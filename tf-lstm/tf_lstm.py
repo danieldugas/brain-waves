@@ -36,8 +36,8 @@ DATA2_FILENAME="077_COSession2.set"
 ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
 BATCH_SIZE = 1000
-TRAINING_DATA_LENGTH = 10000
-VAL_DATA_LENGTH = 10000
+TRAINING_DATA_LENGTH = "max"
+VAL_DATA_LENGTH = "max"
 TEST_DATA_LENGTH = 10000
 SHUFFLE_TRAINING_EXAMPLES = False
 SAMPLING = 1
@@ -152,16 +152,52 @@ if False:
   EOI_indices = [electrode_names.index(name) for name in ELECTRODES_OF_INTEREST]
   raw_wave = np.array([raw_eeglab[e_index][0][0] for e_index in EOI_indices])
   raw_wave = list(raw_wave.T)
-  raw_wave = raw_wave[::SAMPLING]
+  raw_wave = raw_wave[::SAMPLING]*1000000
 
   raw_eeglab = mne.io.read_raw_eeglab(DATA_FOLDER+DATA2_FILENAME)
   electrode_names = raw_eeglab.ch_names
   EOI_indices = [electrode_names.index(name) for name in ELECTRODES_OF_INTEREST]
   raw_wave2 = np.array([raw_eeglab[e_index][0][0] for e_index in EOI_indices])
   raw_wave2 = list(raw_wave2.T)
-  raw_wave2 = raw_wave2[::SAMPLING]
+  raw_wave2 = raw_wave2[::SAMPLING]*1000000
 
   del raw_eeglab
+
+
+# In[ ]:
+
+if False:
+  ARTEFACTS_FILENAME = "077_Session1_artefact.mat"
+  import scipy.io
+  mat = scipy.io.loadmat(DATA_FOLDER+ARTEFACTS_FILENAME)
+  artefacts = mat.get('artndxn')
+  artefacts = np.sum(artefacts, axis=0)
+
+  ARTEFACTS2_FILENAME = "077_Session2_artefact.mat"
+  mat = scipy.io.loadmat(DATA_FOLDER+ARTEFACTS2_FILENAME)
+  artefacts2 = mat.get('artndxn')
+  artefacts2 = np.sum(artefacts2, axis=0)
+  # Save some memory
+  del mat
+
+  artefacts = np.pad(artefacts[:,None], ((0,0),(0,20*200)), 'edge').flatten()
+  print(raw_wave.shape)
+  print(artefacts.shape)
+
+  artefacts2 = np.pad(artefacts2[:,None], ((0,0),(0,20*200)), 'edge').flatten()
+  print(raw_wave2.shape)
+  print(artefacts2.shape)
+
+  plt.figure(figsize=(100,10))
+  plotting_function(np.arange(len(artefacts)), artefacts)
+  plotting_function(range(len(raw_wave)), raw_wave[:,:3])
+  plt.ylim([-300,300])
+  plt.show()
+    
+  raw_wave = raw_wave[np.where(artefacts == artefacts.max())]
+  del artefacts
+  raw_wave2 = raw_wave2[np.where(artefacts2 == artefacts2.max())]
+  del artefacts2
 
 
 # In[ ]:
@@ -178,8 +214,8 @@ if True:
   raw_wave2 = np.load(DATA_FOLDER+"raw_wave2.npy")
   raw_wave  = raw_wave[::SAMPLING]
   raw_wave2 = raw_wave2[::SAMPLING]
-  raw_wave  = raw_wave[OFFSET:]*1000000
-  raw_wave2 = raw_wave2[OFFSET:]*1000000
+  raw_wave  = raw_wave[OFFSET:]
+  raw_wave2 = raw_wave2[OFFSET:]
   raw_wave3 = []
 
 

@@ -355,6 +355,7 @@ step_cost_log = []
 total_val_cost = 0
 val_cost_log = []
 val_steps_since_last_improvement = 0
+make_new_training_batches_and_states = True
 
 # single step
 for step in range(MAX_STEPS):
@@ -419,15 +420,20 @@ for step in range(MAX_STEPS):
         break
             
   # Train on batches
-  training_batchmaker = StatefulBatchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
   total_step_cost = 0
-  prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
-  prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
+  step_batches_counter = 0
+  if make_new_training_batches_and_states:
+    training_batchmaker = StatefulBatchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
+    prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
+    prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
+    make_new_training_batches_and_states = False
   while True:
     if BATCH_LIMIT_PER_STEP > 0:
-      if training_batchmaker.n_batches_consumed() > BATCH_LIMIT_PER_STEP:
+      step_batches_counter += 1
+      if step_batches_counter > BATCH_LIMIT_PER_STEP:
         break
     if training_batchmaker.is_depleted():
+      make_new_training_batches_and_states = True
       break
     else:
       batch_input_values, batch_target_values = training_batchmaker.next_batch()

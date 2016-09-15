@@ -35,10 +35,11 @@ DATA_FILENAME="077_COSession1.set"
 DATA2_FILENAME="077_COSession2.set"
 ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
-BATCH_SIZE = 1000
-TRAINING_DATA_LENGTH = "max"
-VAL_DATA_LENGTH = "max"
-TEST_DATA_LENGTH = 10000
+BATCH_SIZE = 100
+BATCH_LIMIT_PER_STEP = 100
+TRAINING_DATA_LENGTH = 100000
+VAL_DATA_LENGTH = 100000
+TEST_DATA_LENGTH = 1000
 SHUFFLE_TRAINING_EXAMPLES = False
 SAMPLING = 1
 OFFSET = 0
@@ -86,6 +87,7 @@ if SET_EULER_PARAMETERS:
     TENSORBOARD_DIR = None
     
     BATCH_SIZE = 1000
+    BATCH_LIMIT_PER_STEP = 600000
     TRAINING_DATA_LENGTH = "max"
     VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
@@ -253,9 +255,6 @@ if PLOTTING_SUPPORT:
   plt.ylim([-1000,1000])
   plt.figure(figsize=(500,10))
   plotting_function(range(TRAINING_DATA_LENGTH),training_data[:,0],label="training")
-  plotting_function(range(TRAINING_DATA_LENGTH,TRAINING_DATA_LENGTH+VAL_DATA_LENGTH),val_data[:,0],label="validation")
-  plotting_function(range(TRAINING_DATA_LENGTH+VAL_DATA_LENGTH,
-                 TRAINING_DATA_LENGTH+VAL_DATA_LENGTH+TEST_DATA_LENGTH),test_data[:,0],label="test")
   plt.xlim([0, 100000])
   plt.ylim([-100,100])
   #plt.legend()
@@ -366,6 +365,9 @@ for step in range(MAX_STEPS):
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
     total_val_cost = 0
     while True:
+      if BATCH_LIMIT_PER_STEP > 0:
+        if val_batchmaker.n_batches_consumed() > BATCH_LIMIT_PER_STEP:
+          break
       if val_batchmaker.is_depleted():
         break
       else:
@@ -422,6 +424,9 @@ for step in range(MAX_STEPS):
   prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   while True:
+    if BATCH_LIMIT_PER_STEP > 0:
+      if training_batchmaker.n_batches_consumed() > BATCH_LIMIT_PER_STEP:
+        break
     if training_batchmaker.is_depleted():
       break
     else:
@@ -485,6 +490,7 @@ test_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZ
 
 
 testing_cost = 0
+output_value = []
 prev_batch_c_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 prev_batch_h_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 while True:
@@ -505,6 +511,7 @@ while True:
     # Test over 1 batch.
     last_output_value, cost_value, state_value = sess.run((outputs[-1], cost, state), feed_dict=feed_dictionary)
     testing_cost += cost_value
+    output_value.append(last_output_value[0,:])
     prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
     prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
     assert not np.isnan(last_output_value).any()   

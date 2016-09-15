@@ -25,6 +25,7 @@ class Batchmaker:
         if shuffle_examples:
             from random import shuffle
             shuffle(self.remaining_example_indices)
+        self.batches_consumed_counter = 0
 
     def next_batch(self):
         assert not self.is_depleted()
@@ -45,6 +46,8 @@ class Batchmaker:
           else:
               batch_target_values[i_example, :] = np.array([electrode for electrode in unrolled_target_data])
 
+        self.batches_consumed_counter += 1
+
         return batch_input_values, batch_target_values
 
     def is_depleted(self):
@@ -52,6 +55,9 @@ class Batchmaker:
 
     def n_batches_remaining(self):
         return len(self.remaining_example_indices) / self.examples_per_batch
+
+    def n_batches_consumed(self):
+        return self.batches_consumed_counter
 
 def circShift(arr, n):
         return arr[n::] + arr[:n:]
@@ -78,6 +84,7 @@ class StatefulBatchmaker(Batchmaker):
         if first_example_starts_at_zero:
             self.batch_start_indices[0] = 0
         self.batch_remaining_indices = [circShift(list(range(len(data))), n) for n in self.batch_start_indices]
+        self.batches_consumed_counter = 0
 
     def next_batch(self):
         assert not self.is_depleted()
@@ -101,6 +108,8 @@ class StatefulBatchmaker(Batchmaker):
           #   pop the example from remaining indices
           example_remaining_indices.pop(0)
 
+        self.batches_consumed_counter += 1
+
         return batch_input_values, batch_target_values
 
     def is_depleted(self):
@@ -108,6 +117,9 @@ class StatefulBatchmaker(Batchmaker):
 
     def n_batches_remaining(self):
         return len(self.batch_remaining_indices[0])-self.example_length
+
+    def n_batches_consumed(self):
+        return self.batches_consumed_counter
 
 # def test_batchmaker():
 #     from batchmaker import StatefulBatchmaker

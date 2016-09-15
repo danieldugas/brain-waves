@@ -4,7 +4,7 @@ class Batchmaker:
     def __init__(self, data, BPTT_length, examples_per_batch, output_size=1, shuffle_examples=True):
         self.data = data
         self.input_size = 1
-        if len(data[0].shape) == 1:
+        if type(data) == np.ndarray:
             self.input_size = data[0].shape[0]
         self.output_size = output_size
         self.BPTT_length = BPTT_length
@@ -60,7 +60,7 @@ class StatefulBatchmaker(Batchmaker):
     def __init__(self, data, BPTT_length, examples_per_batch, output_size, first_example_starts_at_zero=False):
         self.data = data
         self.input_size = 1
-        if len(data[0].shape) == 1:
+        if type(data) == np.ndarray:
             self.input_size = data[0].shape[0]
         self.output_size = output_size
         self.BPTT_length = BPTT_length

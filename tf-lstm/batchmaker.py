@@ -121,7 +121,7 @@ class StatefulBatchmaker(Batchmaker):
           for t, value in enumerate(unrolled_input_data):
               batch_input_values[t][i_example, :] = value
           #   target.
-          unrolled_target_indices = example_remaining_indices[self.BPTT_length:][:self.output_size]
+          unrolled_target_indices = example_remaining_indices[self.BPTT_length:self.BPTT_length+self.output_size]
           unrolled_target_data = [self.data[i] for i in unrolled_target_indices]
           if self.input_size > 1:
               batch_target_values[i_example, :] = np.array([electrodes[0] for electrodes in unrolled_target_data])

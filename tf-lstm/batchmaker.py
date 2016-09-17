@@ -1,5 +1,10 @@
 import numpy as np
 
+try:
+    xrange
+except NameError:
+    xrange = range
+
 class Batchmaker:
     def __init__(self, data, BPTT_length, examples_per_batch, output_size=1, shuffle_examples=True):
         self.data = data
@@ -59,8 +64,27 @@ class Batchmaker:
     def n_batches_consumed(self):
         return self.batches_consumed_counter
 
-def circShift(arr, n):
-        return arr[n::] + arr[:n:]
+# Behaves like a circshifted list of indices.
+class RemainingIndices:
+    def __init__(self, data_len, start_pos):
+        self.data_len = data_len
+        self.start_pos = start_pos
+        self.popped = 0
+    def pop(self, pos):
+        if (pos != 0):
+          raise NotImplementedError
+        self.popped += 1
+    def __len__(self):
+        return max(0, self.data_len - self.popped)
+    def __getitem__(self, slce):
+        if isinstance(slce, slice):
+            start = 0 if slce.start is None else slce.start
+            stop = len(self) if slce.stop is None else min(len(self), slce.stop)
+            step = 1 if slce.step is None else slce.step
+            return [(self.start_pos + self.popped + i) % self.data_len for i in range(start, stop, step)]
+        else:
+            return (self.start_pos + self.popped + slce) % self.data_len
+
 
 class StatefulBatchmaker(Batchmaker):
     def __init__(self, data, BPTT_length, examples_per_batch, output_size, first_example_starts_at_zero=False):
@@ -77,13 +101,11 @@ class StatefulBatchmaker(Batchmaker):
             print("WARNING: more examples per batch than possible examples in all data")
             self.examples_per_batch = len(data) - self.example_length
         # initialize example indices list
-        possible_start_indices = list(range(len(data)-self.example_length))
-        from random import shuffle
-        shuffle(possible_start_indices)
-        self.batch_start_indices = possible_start_indices[:self.examples_per_batch]
+        from random import sample
+        self.batch_start_indices = sample(xrange(len(data)-self.example_length), self.examples_per_batch)
         if first_example_starts_at_zero:
             self.batch_start_indices[0] = 0
-        self.batch_remaining_indices = [circShift(list(range(len(data))), n) for n in self.batch_start_indices]
+        self.batch_remaining_indices = [RemainingIndices(len(data), n) for n in self.batch_start_indices]
         self.batches_consumed_counter = 0
 
     def next_batch(self):
@@ -121,12 +143,21 @@ class StatefulBatchmaker(Batchmaker):
     def n_batches_consumed(self):
         return self.batches_consumed_counter
 
-# def test_batchmaker():
-#     from batchmaker import StatefulBatchmaker
-#     bm = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
+# ipython notebook example
+# if False:
+#     def test_batchmaker():
+#         from batchmaker import StatefulBatchmaker
+#         bm = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
 #
-#     for i in range(50):
-#           inpt, trgt = bm.next_batch()
-#           print(bm.n_batches_remaining())
-#           plotting_function(range(len(inpt)), np.array(inpt)[:,:5,0])
-#           plotting_function(np.arange(10)+len(inpt), np.array(trgt)[:5,:].T)
+#         from IPython import display
+#         for i in range(50):
+#             for i in range(10):
+#                 inpt, trgt = bm.next_batch()
+#             print(bm.n_batches_remaining())
+#             plotting_function(range(len(inpt)), np.array(inpt)[:,:5,0])
+#             plotting_function(np.arange(10)+len(inpt), np.array(trgt)[:5,:].T)
+#             plt.show()
+#             plt.pause(0.01)
+#             display.clear_output(wait=True)
+#
+#     test_batchmaker()

@@ -37,22 +37,21 @@ ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45'
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
 BATCH_SIZE = 100
 BATCH_LIMIT_PER_STEP = 100
-TRAINING_DATA_LENGTH = 100000
-VAL_DATA_LENGTH = 100000
-TEST_DATA_LENGTH = 1000
-SHUFFLE_TRAINING_EXAMPLES = False
+TRAINING_DATA_LENGTH = "max"
+VAL_DATA_LENGTH = "max"
+TEST_DATA_LENGTH = 2000
 SAMPLING = 1
 OFFSET = 0
 
 MAX_STEPS = 1000
 
 VAL_EVERY_N_STEPS = 1
-VAL_STEP_TOLERANCE = 3
+VAL_STEP_TOLERANCE = 100
 
 class ModelParams:
   def __init__(self):
     self.BPTT_LENGTH = 100
-    self.NUM_UNITS = 128
+    self.NUM_UNITS = 256
     self.N_LAYERS = 3
     self.INPUT_SIZE = 19
     self.OUTPUT_SIZE = 10
@@ -562,11 +561,11 @@ else:
 if False:
   if PLOTTING_SUPPORT:
     from IPython import display
-    for i in range(output_value.shape[0]):
-      plotting_function(range(10), batch_target_values[i], label='target')
+    for i in range(len(output_value)):
+      plotting_function(range(10), test_data[i:i+10][:,0], label='target')
       plotting_function(range(10), output_value[i], label='prediction')
       plt.legend()
-      plt.ylim([-10,10])
+      plt.ylim([-100,100])
       plt.show()
       plt.pause(0.01)
       display.clear_output(wait=True)
@@ -575,7 +574,7 @@ if False:
 # In[ ]:
 
 ## Replace test data with sine wave
-test_data = 30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH))
+test_data = np.tile(30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH)), (MP.INPUT_SIZE, 1)).T
 
 
 # In[ ]:
@@ -596,7 +595,7 @@ else:
 # In[ ]:
 
 HALLUCINATION_LENGTH = 200
-HALLUCINATION_FUTURE = 4
+HALLUCINATION_FUTURE = 9
 
 from batchmaker import StatefulBatchmaker
 hal_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZE, True)

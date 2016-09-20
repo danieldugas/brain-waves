@@ -35,10 +35,10 @@ DATA_FILENAME="077_COSession1.set"
 DATA2_FILENAME="077_COSession2.set"
 ELECTRODES_OF_INTEREST = ['E36','E22','E9','E33','E24','E11','E124','E122','E45','E104',
                           'E108','E58','E52','E62','E92','E96','E70','E83','E75']
-BATCH_SIZE = 100
-BATCH_LIMIT_PER_STEP = 100
+BATCH_SIZE = 20
+BATCH_LIMIT_PER_STEP = 10
 TRAINING_DATA_LENGTH = "max"
-VAL_DATA_LENGTH = "max"
+VAL_DATA_LENGTH = 1200000
 TEST_DATA_LENGTH = 2000
 SAMPLING = 1
 OFFSET = 0
@@ -51,10 +51,11 @@ VAL_STEP_TOLERANCE = 100
 class ModelParams:
   def __init__(self):
     self.BPTT_LENGTH = 100
+    self.OUTSET_CUTOFF = 50
     self.NUM_UNITS = 256
     self.N_LAYERS = 3
     self.INPUT_SIZE = 19
-    self.OUTPUT_SIZE = 10
+    self.OUTPUT_SIZE = 19
     self.LEARNING_RATE = 0.001
     self.CLIP_GRADIENTS = 1.0
     self.SCALE_OUTPUT = 100.0
@@ -76,6 +77,7 @@ TENSORBOARD_DIR = "/home/daniel/tensorboard"
 #DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
 
 assert MP.INPUT_SIZE == len(ELECTRODES_OF_INTEREST)
+assert MP.INPUT_SIZE == MP.OUTPUT_SIZE
 
 
 # In[ ]:
@@ -85,8 +87,8 @@ if SET_EULER_PARAMETERS:
     SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
     TENSORBOARD_DIR = None
     
-    BATCH_SIZE = 1000
-    BATCH_LIMIT_PER_STEP = 600000
+    BATCH_SIZE = 100
+    BATCH_LIMIT_PER_STEP = 10000
     TRAINING_DATA_LENGTH = "max"
     VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
@@ -285,27 +287,46 @@ preset_batch_size = None
 # Placeholders
 with tf.name_scope("input_placeholders") as scope:
   input_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.INPUT_SIZE), name="input"+str(i))
-                        for i in range(MP.BPTT_LENGTH)]
+                        for i in range(MP.OUTSET_CUTOFF)]
 dropout_placeholder = tf.placeholder(tf.float32, name="dropout_prob")
 c_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="c_state"+str(i)) for i in range(MP.N_LAYERS)]
 h_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="h_state"+str(i)) for i in range(MP.N_LAYERS)]
 initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) for c_state, h_state in zip(c_state_placeholders, h_state_placeholders))
+target_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.OUTPUT_SIZE), name="target"+str(i))
+                      for i in range(MP.BPTT_LENGTH-MP.OUTSET_CUTOFF)]
 
-stacked_lstm = tf.nn.rnn_cell.MultiRNNCell(
+# Cells
+stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
     [tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.LSTMCell(MP.NUM_UNITS, state_is_tuple=True),
-                                   output_keep_prob=dropout_placeholder)] * MP.N_LAYERS,
-                                           state_is_tuple=True)
-unrolled_outputs, state = tf.nn.rnn(stacked_lstm, input_placeholders, dtype=tf.float32, initial_state=initial_state)
-
+                                   output_keep_prob=dropout_placeholder) for i in range(MP.N_LAYERS)],
+                                                state_is_tuple=True)
+from tensorflow.python.ops import variable_scope as vs
+state = initial_state
+unrolled_outputs = []
+with tf.variable_scope("RNN") as scope:
+    for time, input_ in enumerate(input_placeholders):
+       if time > 0:
+          scope.reuse_variables()
+       (output, state) = stacked_lstm_cell(input_, state)
+       unrolled_outputs.append(output)
+    for i in range(MP.BPTT_LENGTH-MP.OUTSET_CUTOFF):
+       scope.reuse_variables()
+       (output, state) = stacked_lstm_cell(output[:, 0:MP.OUTPUT_SIZE], state)
+       unrolled_outputs.append(output)
+        
 outputs = [tf.mul(cell_output[:, 0:MP.OUTPUT_SIZE], tf.constant(MP.SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
-target_placeholder = tf.placeholder(tf.float32, shape=(preset_batch_size, MP.OUTPUT_SIZE), name="target")
-
-loss = tf.square(target_placeholder - outputs[-1], name="loss")
+# Loss
+loss = [tf.square(target_placeholder - output, name="loss"+str(i)) 
+        for i, (target_placeholder, output) in enumerate(zip(target_placeholders, outputs[MP.OUTSET_CUTOFF:]))]
+loss = tf.add_n(loss, name="summed_seq_loss") # add together losses for each sequence step
+electrode_loss_weights = tf.constant([1.0]+[0.01 for _ in range(MP.OUTPUT_SIZE-1)], name="loss_weights")
+loss = tf.mul(loss, electrode_loss_weights, name="weighted_loss") # weigh loss for each electrode
 if MP.OUTPUT_SIZE > 1:
     loss = tf.reduce_sum(loss, 1) # add together loss for all outputs
 cost = tf.reduce_mean(loss, name="cost")   # average over batch
-# Use ADAM optimizer
+
+# ADAM optimizer
 optimizer = tf.train.AdamOptimizer(learning_rate=MP.LEARNING_RATE).minimize(cost)
 if MP.CLIP_GRADIENTS > 0:
   adam = tf.train.AdamOptimizer(learning_rate=MP.LEARNING_RATE)
@@ -359,7 +380,7 @@ make_new_training_batches_and_states = True
 # single step
 for step in range(MAX_STEPS):
   # Validation
-  val_batchmaker = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
+  val_batchmaker = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, MP.OUTSET_CUTOFF, BATCH_SIZE, MP.OUTPUT_SIZE)
   prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
@@ -375,8 +396,9 @@ for step in range(MAX_STEPS):
     
         # Assign a value to each placeholder.
         feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-        feed_dictionary[target_placeholder] = batch_target_values
         feed_dictionary[dropout_placeholder] = 1.0
+        for target_placeholder, target_value in zip(target_placeholders, batch_target_values):
+            feed_dictionary[target_placeholder] = target_value
         for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
             feed_dictionary[c_state_placeholder] = prev_batch_c_state
         for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
@@ -422,7 +444,7 @@ for step in range(MAX_STEPS):
   total_step_cost = 0
   step_batches_counter = 0
   if make_new_training_batches_and_states:
-    training_batchmaker = StatefulBatchmaker(training_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
+    training_batchmaker = StatefulBatchmaker(training_data, MP.BPTT_LENGTH, MP.OUTSET_CUTOFF, BATCH_SIZE, MP.OUTPUT_SIZE)
     prev_batch_c_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
     prev_batch_h_states = [np.zeros((BATCH_SIZE, MP.NUM_UNITS)) for i in range(MP.N_LAYERS)]
     make_new_training_batches_and_states = False
@@ -439,8 +461,9 @@ for step in range(MAX_STEPS):
       
       # Assign a value to each placeholder.
       feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-      feed_dictionary[target_placeholder] = batch_target_values
       feed_dictionary[dropout_placeholder] = MP.DROPOUT
+      for target_placeholder, target_value in zip(target_placeholders, batch_target_values):
+        feed_dictionary[target_placeholder] = target_value
       for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
         feed_dictionary[c_state_placeholder] = prev_batch_c_state
       for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
@@ -491,11 +514,11 @@ offset = 0
 REALIGN_OUTPUT = True
 
 from batchmaker import StatefulBatchmaker
-test_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZE, True)
+test_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, MP.OUTSET_CUTOFF, 1, MP.OUTPUT_SIZE, True)
 
 
 testing_cost = 0
-output_value = []
+test_outputs = []
 prev_batch_c_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 prev_batch_h_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 while True:
@@ -506,40 +529,53 @@ while True:
     
     # Assign a value to each placeholder.
     feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-    feed_dictionary[target_placeholder] = batch_target_values
     feed_dictionary[dropout_placeholder] = 1.0
+    for target_placeholder, target_value in zip(target_placeholders, batch_target_values):
+      feed_dictionary[target_placeholder] = target_value
     for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
       feed_dictionary[c_state_placeholder] = prev_batch_c_state
     for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
       feed_dictionary[h_state_placeholder] = prev_batch_h_state
 
     # Test over 1 batch.
-    last_output_value, cost_value, state_value = sess.run((outputs[-1], cost, state), feed_dict=feed_dictionary)
+    outputs_value, cost_value, state_value = sess.run((outputs, cost, state), feed_dict=feed_dictionary)
+    outputs_value = np.array(outputs_value)
     testing_cost += cost_value
-    output_value.append(last_output_value[0,:])
+    test_outputs.append(outputs_value[:,0,:])
     prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
     prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
-    assert not np.isnan(last_output_value).any()   
+    assert not np.isnan(outputs_value[-1]).any()   
+test_outputs = np.array(test_outputs)
 
 if PLOTTING_SUPPORT:
   plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
-  plt.gca().set_prop_cycle(cycler('color', ['k'] + [(1,w,w) for w in np.linspace(0.8,0,MP.OUTPUT_SIZE)]))
+  plt.gca().set_prop_cycle(cycler('color', ['k'] + 
+                                           [(1,1,w) for w in np.linspace(0.8,0.5,MP.OUTSET_CUTOFF)] + 
+                                           [(1,w,w) for w in np.linspace(0.4,0,MP.BPTT_LENGTH-MP.OUTSET_CUTOFF)]))
   plot_data = np.array(test_data)
   if MP.INPUT_SIZE > 1:
     plot_data = plot_data[:,0]
   plotting_function(range(len(plot_data)), plot_data, label="test data")
   if REALIGN_OUTPUT:
-    abscisses = np.tile(np.arange(MP.BPTT_LENGTH, MP.BPTT_LENGTH+len(output_value))[:,None], (1,MP.OUTPUT_SIZE))
-    abscisses = abscisses + np.arange(MP.OUTPUT_SIZE)
+    abscisses = np.tile(np.arange(MP.OUTSET_CUTOFF, MP.OUTSET_CUTOFF+len(test_outputs))[:,None], (1,MP.BPTT_LENGTH))
+    abscisses = abscisses + np.arange(MP.BPTT_LENGTH)
   else:
-    abscisses = np.arange(MP.BPTT_LENGTH, MP.BPTT_LENGTH+len(output_value))
-  plotting_function(abscisses, output_value, label="prediction")
+    abscisses = np.arange(MP.OUTSET_CUTOFF, MP.OUTSET_CUTOFF+len(test_outputs))
+  plotting_function(abscisses, test_outputs[:,:,0], label="prediction")
   plt.legend()
   if MP.INPUT_SIZE > 1:
     plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
+    plt.gca().set_prop_cycle(cycler('color', ['k'] + 
+                                             [(1,1,w) for w in np.linspace(0.8,0.5,MP.OUTSET_CUTOFF)] + 
+                                             [(1,w,w) for w in np.linspace(0.4,0,MP.BPTT_LENGTH-MP.OUTSET_CUTOFF)]))
+    plot_data = np.array(test_data)[:,1]
+    plotting_function(range(len(plot_data)), plot_data, label="electrode 1")
+    plotting_function(abscisses, test_outputs[:,:,1], label="prediction")
+    plt.legend() 
+    plt.figure(figsize=(TEST_DATA_LENGTH/20,10))
     plot_data = np.array(test_data)[:,1:]
     plotting_function(range(len(plot_data)), plot_data, label="electrodes")
-    plt.legend()  
+    plt.legend()
   print("Offset: ", end='')
   print(offset)
 print("Testing cost: ", end='')
@@ -547,10 +583,10 @@ print(testing_cost)
 
 #Reset test data to normal data
 offset += TEST_DATA_LENGTH
-if len(raw_wave2) is 0:
+if len(raw_wave2) == 0:
   test_data = raw_wave[offset:][TRAINING_DATA_LENGTH:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
 else:
-  if len(raw_wave3) is 0:
+  if len(raw_wave3) == 0:
     test_data = raw_wave2[offset:][VAL_DATA_LENGTH:][:TEST_DATA_LENGTH]
   else:
     test_data = raw_wave3[offset:][:TEST_DATA_LENGTH]
@@ -574,7 +610,8 @@ if False:
 # In[ ]:
 
 ## Replace test data with sine wave
-test_data = np.tile(30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH)), (MP.INPUT_SIZE, 1)).T
+if False:
+  test_data = np.tile(30*np.sin(np.linspace(0,100*np.pi,TEST_DATA_LENGTH)), (MP.INPUT_SIZE, 1)).T
 
 
 # In[ ]:
@@ -594,42 +631,80 @@ else:
 
 # In[ ]:
 
-HALLUCINATION_LENGTH = 200
-HALLUCINATION_FUTURE = 9
+PRE_HALLUCINATION_LENGTH = 1000
+HALLUCINATION_LENGTH = 500
+HALLUCINATION_FUTURE = 0
 
 from batchmaker import StatefulBatchmaker
-hal_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, 1, MP.OUTPUT_SIZE, True)
+hal_batchmaker = StatefulBatchmaker(test_data, MP.BPTT_LENGTH, MP.OUTSET_CUTOFF, 1, MP.OUTPUT_SIZE, True)
 prev_batch_c_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 prev_batch_h_states = [np.zeros((1, MP.NUM_UNITS)) for i in range(len(state_value))]
 batch_input_values, batch_target_values = hal_batchmaker.next_batch()
 
+hal_target = []
+pre_hal_output = []
 hal_output = []
-for i in range(HALLUCINATION_LENGTH):
+for i in range(PRE_HALLUCINATION_LENGTH):
   # Assign a value to each placeholder.
   feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
-  feed_dictionary[target_placeholder] = batch_target_values
   feed_dictionary[dropout_placeholder] = 1.0
+  for target_placeholder, target_value in zip(target_placeholders, batch_target_values):
+    feed_dictionary[target_placeholder] = target_value
   for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
     feed_dictionary[c_state_placeholder] = prev_batch_c_state
   for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
     feed_dictionary[h_state_placeholder] = prev_batch_h_state
 
   # Run session
-  output_value, state_value = sess.run((outputs[-1], state), feed_dict=feed_dictionary)
-  hal_output.append(output_value[0,HALLUCINATION_FUTURE])
+  outputs_value, state_value = sess.run((outputs, state), feed_dict=feed_dictionary)
 
   prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
   prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
 
   batch_input_values, batch_target_values = hal_batchmaker.next_batch()
-  batch_input_values[-1][0,0] = output_value[0,0]
+  hal_target.append(batch_input_values[-1])
+  pre_hal_output.append(outputs_value[MP.OUTSET_CUTOFF-1])
+
+for i in range(HALLUCINATION_LENGTH):
+  # Assign a value to each placeholder.
+  feed_dictionary = {ph: v for ph, v in zip(input_placeholders, batch_input_values)}
+  feed_dictionary[dropout_placeholder] = 1.0
+  for target_placeholder, target_value in zip(target_placeholders, batch_target_values):
+    feed_dictionary[target_placeholder] = target_value
+  for c_state_placeholder, prev_batch_c_state in zip(c_state_placeholders, prev_batch_c_states):
+    feed_dictionary[c_state_placeholder] = prev_batch_c_state
+  for h_state_placeholder, prev_batch_h_state in zip(h_state_placeholders, prev_batch_h_states):
+    feed_dictionary[h_state_placeholder] = prev_batch_h_state
+
+  # Run session
+  outputs_value, state_value = sess.run((outputs, state), feed_dict=feed_dictionary)
+  hal_output.append(outputs_value[MP.OUTSET_CUTOFF-1+HALLUCINATION_FUTURE][0,0])
+
+  prev_batch_c_states = [state_value[i].c for i in range(len(state_value))]
+  prev_batch_h_states = [state_value[i].h for i in range(len(state_value))]
+
+  #batch_input_values, batch_target_values = hal_batchmaker.next_batch()
+  #batch_input_values[-1] = outputs_value[MP.OUTSET_CUTOFF-1]
+
+  batch_input_values.pop(0)
+  batch_input_values.append(outputs_value[MP.OUTSET_CUTOFF-1])
+
+  actual_input_values, _ = hal_batchmaker.next_batch()
+  hal_target.append(actual_input_values[-1])
 
 if PLOTTING_SUPPORT:
-  plt.figure(figsize=(20,10))
-  plotting_function(range(len(test_data)), np.array(test_data)[:,0], label="test data")
-  plotting_function(range(MP.BPTT_LENGTH,MP.BPTT_LENGTH+len(hal_output)),hal_output, label="prediction")
-  plt.xlim([0,MP.BPTT_LENGTH+len(hal_output)])
+  plt.figure(figsize=(100,10))
+  plt.gca().set_prop_cycle(cycler('color', ['k'] + ['blue'] + ['red']))
+  plotting_function(range(len(hal_target)), np.array(hal_target)[:,0,0], label="test data")
+  plotting_function(range(len(pre_hal_output)), np.array(pre_hal_output)[:,0,0], label="pre-hallucination")
+  plotting_function(range(len(pre_hal_output),len(pre_hal_output)+len(hal_output)),hal_output, label="prediction")
+  plt.xlim([0,PRE_HALLUCINATION_LENGTH+len(hal_output)])
   plt.legend()
+
+
+# In[ ]:
+
+outputs_value[0].shape
 
 
 # ## You've got mail!

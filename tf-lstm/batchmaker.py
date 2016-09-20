@@ -87,13 +87,15 @@ class RemainingIndices:
 
 
 class StatefulBatchmaker(Batchmaker):
-    def __init__(self, data, BPTT_length, examples_per_batch, output_size, first_example_starts_at_zero=False):
+    def __init__(self, data, BPTT_length, outset_cutoff,
+                 examples_per_batch, output_size, first_example_starts_at_zero=False):
         self.data = data
         self.input_size = 1
         if type(data) == np.ndarray:
             self.input_size = data[0].shape[0]
         self.output_size = output_size
         self.BPTT_length = BPTT_length
+        self.outset_cutoff = outset_cutoff
         self.example_length = BPTT_length + self.output_size
         assert self.example_length < len(data)
         self.examples_per_batch = examples_per_batch
@@ -111,27 +113,24 @@ class StatefulBatchmaker(Batchmaker):
     def next_batch(self):
         assert not self.is_depleted()
         # Create a single batch
-        batch_input_values = [np.zeros((self.examples_per_batch, self.input_size)) for _ in range(self.BPTT_length)]
-        batch_target_values = np.zeros((self.examples_per_batch, self.output_size))
+        batch_input_values  = [np.zeros((self.examples_per_batch, self.input_size)) for _ in range(self.outset_cutoff)]
+        batch_target_values = [np.zeros((self.examples_per_batch, self.output_size)) for _ in range(self.outset_cutoff, self.BPTT_length)]
         # Create training example at index 'pos' in data.
         for i_example, example_remaining_indices in enumerate(self.batch_remaining_indices):
           #   input.
-          unrolled_input_indices = example_remaining_indices[:self.BPTT_length]
+          unrolled_input_indices = example_remaining_indices[:self.outset_cutoff]
           unrolled_input_data = [self.data[i] for i in unrolled_input_indices]
           for t, value in enumerate(unrolled_input_data):
               batch_input_values[t][i_example, :] = value
           #   target.
-          unrolled_target_indices = example_remaining_indices[self.BPTT_length:self.BPTT_length+self.output_size]
+          unrolled_target_indices = example_remaining_indices[self.outset_cutoff:self.BPTT_length]
           unrolled_target_data = [self.data[i] for i in unrolled_target_indices]
-          if self.input_size > 1:
-              batch_target_values[i_example, :] = np.array([electrodes[0] for electrodes in unrolled_target_data])
-          else:
-              batch_target_values[i_example, :] = np.array([electrode for electrode in unrolled_target_data])
+          for t, value in enumerate(unrolled_target_data):
+              batch_target_values[t][i_example, :] = value
           #   pop the example from remaining indices
           example_remaining_indices.pop(0)
 
         self.batches_consumed_counter += 1
-
         return batch_input_values, batch_target_values
 
     def is_depleted(self):
@@ -147,17 +146,15 @@ class StatefulBatchmaker(Batchmaker):
 # if False:
 #     def test_batchmaker():
 #         from batchmaker import StatefulBatchmaker
-#         bm = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, BATCH_SIZE, MP.OUTPUT_SIZE)
-#
+#         bm = StatefulBatchmaker(val_data, MP.BPTT_LENGTH, MP.OUTSET_CUTOFF, BATCH_SIZE, MP.OUTPUT_SIZE)
 #         from IPython import display
 #         for i in range(50):
-#             for i in range(10):
+#             for i in range(1):
 #                 inpt, trgt = bm.next_batch()
 #             print(bm.n_batches_remaining())
 #             plotting_function(range(len(inpt)), np.array(inpt)[:,:5,0])
-#             plotting_function(np.arange(10)+len(inpt), np.array(trgt)[:5,:].T)
+#             plotting_function(np.arange(len(trgt))+len(inpt), np.array(trgt)[:,:5,0])
 #             plt.show()
 #             plt.pause(0.01)
 #             display.clear_output(wait=True)
-#
 #     test_batchmaker()

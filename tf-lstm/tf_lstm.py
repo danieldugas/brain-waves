@@ -41,7 +41,6 @@ TRAINING_DATA_LENGTH = "max"
 VAL_DATA_LENGTH = 1200000
 TEST_DATA_LENGTH = 2000
 SAMPLING = 1
-OFFSET = 0
 
 MAX_STEPS = 1000
 
@@ -52,7 +51,7 @@ class ModelParams:
   def __init__(self):
     self.BPTT_LENGTH = 100
     self.OUTSET_CUTOFF = 50
-    self.NUM_UNITS = 256
+    self.NUM_UNITS = 512
     self.N_LAYERS = 3
     self.INPUT_SIZE = 19
     self.OUTPUT_SIZE = 19
@@ -87,10 +86,8 @@ if SET_EULER_PARAMETERS:
     SAVE_DIR = "/cluster/home/dugasd/tf-lstm-model/"
     TENSORBOARD_DIR = None
     
-    BATCH_SIZE = 100
+    BATCH_SIZE = 20
     BATCH_LIMIT_PER_STEP = 10000
-    TRAINING_DATA_LENGTH = "max"
-    VAL_DATA_LENGTH = "max"
     MAX_STEPS = 1000000
     VAL_STEP_TOLERANCE = 100
 
@@ -217,8 +214,6 @@ if True:
   raw_wave2 = np.load(DATA_FOLDER+"raw_wave2.npy")
   raw_wave  = raw_wave[::SAMPLING]
   raw_wave2 = raw_wave2[::SAMPLING]
-  raw_wave  = raw_wave[OFFSET:]
-  raw_wave2 = raw_wave2[OFFSET:]
   raw_wave3 = []
 
 
@@ -292,8 +287,9 @@ dropout_placeholder = tf.placeholder(tf.float32, name="dropout_prob")
 c_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="c_state"+str(i)) for i in range(MP.N_LAYERS)]
 h_state_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.NUM_UNITS), name="h_state"+str(i)) for i in range(MP.N_LAYERS)]
 initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) for c_state, h_state in zip(c_state_placeholders, h_state_placeholders))
-target_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.OUTPUT_SIZE), name="target"+str(i))
-                      for i in range(MP.BPTT_LENGTH-MP.OUTSET_CUTOFF)]
+with tf.name_scope("target_placeholders") as scope:
+  target_placeholders = [tf.placeholder(tf.float32, shape=(preset_batch_size, MP.OUTPUT_SIZE), name="target"+str(i))
+                        for i in range(MP.BPTT_LENGTH-MP.OUTSET_CUTOFF)]
 
 # Cells
 stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
@@ -317,14 +313,15 @@ with tf.variable_scope("RNN") as scope:
 outputs = [tf.mul(cell_output[:, 0:MP.OUTPUT_SIZE], tf.constant(MP.SCALE_OUTPUT)) for cell_output in unrolled_outputs]
 
 # Loss
-loss = [tf.square(target_placeholder - output, name="loss"+str(i)) 
-        for i, (target_placeholder, output) in enumerate(zip(target_placeholders, outputs[MP.OUTSET_CUTOFF:]))]
-loss = tf.add_n(loss, name="summed_seq_loss") # add together losses for each sequence step
-electrode_loss_weights = tf.constant([1.0]+[0.01 for _ in range(MP.OUTPUT_SIZE-1)], name="loss_weights")
-loss = tf.mul(loss, electrode_loss_weights, name="weighted_loss") # weigh loss for each electrode
-if MP.OUTPUT_SIZE > 1:
-    loss = tf.reduce_sum(loss, 1) # add together loss for all outputs
-cost = tf.reduce_mean(loss, name="cost")   # average over batch
+with tf.variable_scope("CostFunction") as scope:
+  loss = [tf.square(target_placeholder - output, name="loss"+str(i)) 
+          for i, (target_placeholder, output) in enumerate(zip(target_placeholders, outputs[MP.OUTSET_CUTOFF:]))]
+  loss = tf.add_n(loss, name="summed_seq_loss") # add together losses for each sequence step
+  electrode_loss_weights = tf.constant([1.0]+[0.01 for _ in range(MP.OUTPUT_SIZE-1)], name="loss_weights")
+  loss = tf.mul(loss, electrode_loss_weights, name="weighted_loss") # weigh loss for each electrode
+  if MP.OUTPUT_SIZE > 1:
+      loss = tf.reduce_sum(loss, 1) # add together loss for all outputs
+  cost = tf.reduce_mean(loss, name="cost")   # average over batch
 
 # ADAM optimizer
 optimizer = tf.train.AdamOptimizer(learning_rate=MP.LEARNING_RATE).minimize(cost)
@@ -338,11 +335,15 @@ if MP.CLIP_GRADIENTS > 0:
 # Initialize session and write graph for visualization.
 sess = tf.Session()
 tf.initialize_all_variables().run(session=sess)
+
+print("Session created.")
+
+
+# In[ ]:
+
 if TENSORBOARD_DIR != None:
   summary_writer = tf.train.SummaryWriter(TENSORBOARD_DIR, sess.graph)
   print("Tensorboard graph saved.")
-
-print("Session created.")
 
 
 # In[ ]:
@@ -700,11 +701,6 @@ if PLOTTING_SUPPORT:
   plotting_function(range(len(pre_hal_output),len(pre_hal_output)+len(hal_output)),hal_output, label="prediction")
   plt.xlim([0,PRE_HALLUCINATION_LENGTH+len(hal_output)])
   plt.legend()
-
-
-# In[ ]:
-
-outputs_value[0].shape
 
 
 # ## You've got mail!

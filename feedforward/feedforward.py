@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[3]:
+# In[ ]:
 
 from __future__ import print_function
 
@@ -12,7 +12,7 @@ from ann import model
 import pickle
 
 
-# In[4]:
+# In[ ]:
 
 DEBUG = False
 PLOTTING_SUPPORT = True
@@ -41,7 +41,7 @@ if len(argv) > 1:
     argv.remove("--marmot") 
 
 
-# In[5]:
+# In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
   get_ipython().magic('load_ext autoreload')
@@ -55,7 +55,7 @@ if not RUN_AS_PY_SCRIPT:
 
 # ## Parameters
 
-# In[6]:
+# In[ ]:
 
 BATCH_SIZE = 1000
 
@@ -84,9 +84,10 @@ MP_FILENAME = "model_params.pckl"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
 SAVE_UNVALIDATED = False
 DETAILED_STEP_TIMES = True
+PROGRESS = True
 
 
-# In[7]:
+# In[ ]:
 
 if SET_EULER_PARAMS:
     DATA_DIR = "/cluster/home/dugasd/Raw-Waves/"
@@ -111,7 +112,7 @@ if not RUN_AS_PY_SCRIPT:
     MAX_TRAIN_DATA_LENGTH = 40000
 
 
-# In[8]:
+# In[ ]:
 
 if RUN_AS_PY_SCRIPT:
   while argv:
@@ -129,7 +130,7 @@ if RUN_AS_PY_SCRIPT:
         print("Unknown argument: " + arg)
 
 
-# In[9]:
+# In[ ]:
 
 SAVE_PATH = SAVE_DIR+SAVE_FILE
 if SAVE_UNVALIDATED:
@@ -139,7 +140,7 @@ if SAVE_UNVALIDATED:
 
 # ## Datasets
 
-# In[10]:
+# In[ ]:
 
 if True:
   raw_wave = []
@@ -157,14 +158,14 @@ if True:
   del mat
 
 
-# In[12]:
+# In[ ]:
 
 is_sleep_wave = np.zeros(raw_wave.shape)
 for i in range(wave_indices.shape[1]):
   is_sleep_wave[wave_indices[0,i]:wave_indices[4,i]] = 1
 
 
-# In[11]:
+# In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
   plt.figure()
@@ -260,7 +261,7 @@ for step in range(MAX_STEPS):
         batch_input_values, batch_target_values, batch_is_sleep_values = val_batchmaker.next_batch()
         cost_value = ff.cost_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
         total_val_cost += cost_value
-        if PLOTTING_SUPPORT:
+        if PROGRESS:
           progress_bar(val_batchmaker)
     print("Validation cost: "+str(total_val_cost)+"  (Training cost: "+str(total_step_cost)+")", end="")
     try:
@@ -318,7 +319,7 @@ for step in range(MAX_STEPS):
       cost_value = ff.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
       total_step_cost += cost_value
       t_c = timer()
-      if PLOTTING_SUPPORT:
+      if PROGRESS:
         progress_bar(training_batchmaker)
       t_d = timer()
       step_times['batchmaking'] += t_b - t_a
@@ -354,9 +355,4 @@ if not RUN_AS_PY_SCRIPT:
   plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
   plt.show()
   plt.legend()
-
-
-# In[ ]:
-
-
 

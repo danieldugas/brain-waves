@@ -56,11 +56,7 @@ class Batchmaker:
         return self.batches_consumed_counter
 
 def progress_bar(batchmaker):
-  from matplotlib import pyplot as plt  
   import time
-  plt.figure('progress_bar')
-  plt.scatter(time.time(), batchmaker.n_batches_consumed())
-  plt.ylim([0, batchmaker.n_batches_consumed()+batchmaker.n_batches_remaining()])
-  plt.show()
-  plt.gcf().canvas.draw()
-  time.sleep(0.0001)
+  with open('/tmp/training_log.csv', 'a') as file:
+    file.write(str(time.time()) + ' ' + str(batchmaker.n_batches_consumed()) + ' ' +
+               str(batchmaker.n_batches_consumed()+batchmaker.n_batches_remaining()) + '\n')

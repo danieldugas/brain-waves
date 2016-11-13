@@ -1,0 +1,37 @@
+import numpy as np
+
+def mu_law(x, mu=255, x_max=1):
+  return x_max*np.sign(x)*np.log(1+mu*np.abs(x)/x_max)/np.log(1+mu)
+
+def inverse_mu_law(y, mu=255, x_max=1):
+  return x_max*np.sign(y)*(np.exp(np.abs(y)*np.log(1+mu)/x_max)-1)/mu
+
+def quantize(x, n_bins=256, x_max=1):
+  bins = np.zeros(list(np.shape(x))+[n_bins])
+  if np.any(np.abs(np.array(x) > x_max)):
+    raise ValueError('|x| should not be greater than x_max (x_max=' + str(x_max) + ')')
+  x_bin = np.round((np.array(x)/(2*x_max)+0.5)*(n_bins-1)).astype(int)
+  flat_bins = np.reshape(bins, [-1, n_bins])
+  flat_x_bin = np.reshape(x_bin, [-1])
+  flat_bins[(np.arange(len(flat_x_bin)),flat_x_bin)] = 1
+  return np.reshape(flat_bins, np.shape(bins))
+
+def unquantize(X, n_bins=256, x_max=1):
+  indices = np.where(np.reshape(X, [-1,X.shape[-1]])==1)[1]
+  try:
+    indices = np.reshape(indices, X.shape[:-1])
+  except ValueError:
+    print(indices)
+    print(indices.shape)
+    raise ValueError('Quantized array x should have shape (x.shape, n_bins), with one non-zero value per bin.')
+  return (indices/(n_bins-1) - 0.5) * 2*x_max
+
+if __name__ == "__main__":
+  import matplotlib.pyplot as plt
+  n_bins = 256
+  x = np.linspace(0,4*np.pi,1000)
+  y = np.sin(x)
+  plt.figure('quantization_test')
+  plt.step(x, y)
+  plt.step(x, inverse_mu_law(unquantize(quantize(mu_law(y), n_bins), n_bins)))
+  plt.show()

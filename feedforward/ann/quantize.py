@@ -16,13 +16,22 @@ def quantize(x, n_bins=256, x_max=1):
   flat_bins[(np.arange(len(flat_x_bin)),flat_x_bin)] = 1
   return np.reshape(flat_bins, np.shape(bins))
 
+def pick_max(X):
+  n_bins=X.shape[-1]
+  bins = np.zeros(list(np.shape(X)))
+  flat_bins = np.reshape(bins, [-1, n_bins])
+  flat_X = np.reshape(X, [-1,n_bins])
+  flat_X_bin = np.argmax(flat_X, axis=1)
+  flat_bins[(np.arange(len(flat_X_bin)),flat_X_bin)] = 1
+  return np.reshape(flat_bins, np.shape(bins))
+
 def unquantize(X, x_max=1):
   n_bins=X.shape[-1]
   indices = np.where(np.reshape(X, [-1,n_bins])==1)[1]
   try:
     indices = np.reshape(indices, X.shape[:-1])
   except ValueError:
-    print(indices)
+    print(np.where(np.reshape(X, [-1,n_bins])==1))
     print(indices.shape)
     raise ValueError('Quantized array x should have shape (x.shape, n_bins), with one non-zero value per bin.')
   return (indices/(n_bins-1) - 0.5) * 2*x_max

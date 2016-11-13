@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[ ]:
+# In[3]:
 
 from __future__ import print_function
 
@@ -12,7 +12,7 @@ from ann import model
 import pickle
 
 
-# In[ ]:
+# In[4]:
 
 DEBUG = False
 PLOTTING_SUPPORT = True
@@ -41,7 +41,7 @@ if len(argv) > 1:
     argv.remove("--marmot") 
 
 
-# In[ ]:
+# In[5]:
 
 if not RUN_AS_PY_SCRIPT:
   get_ipython().magic('load_ext autoreload')
@@ -55,9 +55,9 @@ if not RUN_AS_PY_SCRIPT:
 
 # ## Parameters
 
-# In[ ]:
+# In[6]:
 
-BATCH_SIZE = 10000
+BATCH_SIZE = 1000
 
 MAX_STEPS = 10000
 VAL_EVERY_N_STEPS = 1
@@ -73,8 +73,9 @@ DATA_DIR = "/home/daniel/Downloads/Raw-Waves/"
 DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
 DATA2_FILENAME="001_Session2_FilterTrigCh_RawCh.mat"
 DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
-VAL_DATA_LENGTH = 200000
 SAMPLING = 1
+MAX_VAL_DATA_LENGTH = 100000000
+MAX_TRAIN_DATA_LENGTH = 400000000
 
 RESTORE_MODEL = True
 SAVE_DIR = "/home/daniel/Desktop/feedforward/"
@@ -85,10 +86,10 @@ SAVE_UNVALIDATED = False
 DETAILED_STEP_TIMES = True
 
 
-# In[ ]:
+# In[7]:
 
 if SET_EULER_PARAMS:
-    DATA_DIR = "/cluster/home/dugasd/database/"
+    DATA_DIR = "/cluster/home/dugasd/Raw-Waves/"
     SAVE_DIR = "/cluster/home/dugasd/feedforward-euler/"
     TENSORBOARD_DIR = None
     
@@ -105,9 +106,12 @@ if SET_MARMOT_PARAMS:
     
 if not RUN_AS_PY_SCRIPT:
     MAX_STEPS = 100
+    
+    MAX_VAL_DATA_LENGTH = 10000
+    MAX_TRAIN_DATA_LENGTH = 40000
 
 
-# In[ ]:
+# In[8]:
 
 if RUN_AS_PY_SCRIPT:
   while argv:
@@ -125,7 +129,7 @@ if RUN_AS_PY_SCRIPT:
         print("Unknown argument: " + arg)
 
 
-# In[ ]:
+# In[9]:
 
 SAVE_PATH = SAVE_DIR+SAVE_FILE
 if SAVE_UNVALIDATED:
@@ -135,7 +139,7 @@ if SAVE_UNVALIDATED:
 
 # ## Datasets
 
-# In[ ]:
+# In[10]:
 
 if True:
   raw_wave = []
@@ -153,30 +157,23 @@ if True:
   del mat
 
 
-# In[ ]:
+# In[12]:
 
-if PLOTTING_SUPPORT:
-  plt.figure()
-  plotting_function(range(len(raw_wave)),raw_wave,label="raw_wave")
-  plt.show()
-
-
-# In[ ]:
-
-i = 0
-plt.plot(raw_wave[wave_indices[0,i]:wave_indices[4,i]])
-plt.show()
 is_sleep_wave = np.zeros(raw_wave.shape)
 for i in range(wave_indices.shape[1]):
   is_sleep_wave[wave_indices[0,i]:wave_indices[4,i]] = 1
 
 
-# In[ ]:
+# In[11]:
 
-plt.figure(figsize=[100,10])
-plt.plot(is_sleep_wave[2000000: 2010000])
-plt.plot(raw_wave[2000000: 2010000])
-plt.show()
+if not RUN_AS_PY_SCRIPT:
+  plt.figure()
+  plotting_function(range(len(raw_wave)),raw_wave,label="raw_wave")
+  plt.show()
+  plt.figure()
+  i = 0
+  plt.plot(raw_wave[wave_indices[0,i]:wave_indices[4,i]])
+  plt.show()
 
 
 # ## Create Model
@@ -224,11 +221,11 @@ if RESTORE_MODEL:
 # In[ ]:
 
 ## Split into training and val data
-split_at = min(VAL_DATA_LENGTH, int(0.2 * len(raw_wave)))
+split_at = min(MAX_VAL_DATA_LENGTH, int(0.2 * len(raw_wave)))
 val = raw_wave[:split_at]
 val_is_sleep = is_sleep_wave[:split_at]
-train = raw_wave[split_at:]
-train_is_sleep = is_sleep_wave[split_at:]
+train = raw_wave[split_at:][:MAX_TRAIN_DATA_LENGTH]
+train_is_sleep = is_sleep_wave[split_at:][:MAX_TRAIN_DATA_LENGTH]
 
 
 # ## Train Model ( Computationally Intensive )
@@ -332,4 +329,34 @@ for step in range(MAX_STEPS):
 
 
 print("Training ended.")
+
+
+# ## Evaluation
+
+# In[ ]:
+
+if not RUN_AS_PY_SCRIPT:
+  test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, shuffle_examples=False)
+  X, Y, IS = test_batchmaker.next_batch()
+  Y_pred, IS_pred = ff.predict(X)
+
+
+# In[ ]:
+
+if not RUN_AS_PY_SCRIPT:
+  from ann.quantize import pick_max, inverse_mu_law, unquantize
+  plt.figure()
+  plt.plot(Y[0], label='ground truth')
+  plt.plot(inverse_mu_law(unquantize(pick_max(Y_pred[0]))), label='prediction')
+  plt.legend()
+  plt.figure()
+  plt.step(range(len(IS[0])), IS[0], label='ground truth')
+  plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
+  plt.show()
+  plt.legend()
+
+
+# In[ ]:
+
+
 

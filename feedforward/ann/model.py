@@ -136,7 +136,7 @@ class Feedforward(object):
         layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
       # Unflatten output
       is_sleep_shape = self.MP.WAVE_OUT_SHAPE
-      self.is_sleep = tf.reshape(layer_output, shape=[-1]+is_sleep_shape, name="unflatten")
+      self.is_sleep = tf.minimum(tf.reshape(layer_output, shape=[-1]+is_sleep_shape, name="unflatten"), 1)
     # Loss
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:

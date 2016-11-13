@@ -16,8 +16,9 @@ def quantize(x, n_bins=256, x_max=1):
   flat_bins[(np.arange(len(flat_x_bin)),flat_x_bin)] = 1
   return np.reshape(flat_bins, np.shape(bins))
 
-def unquantize(X, n_bins=256, x_max=1):
-  indices = np.where(np.reshape(X, [-1,X.shape[-1]])==1)[1]
+def unquantize(X, x_max=1):
+  n_bins=X.shape[-1]
+  indices = np.where(np.reshape(X, [-1,n_bins])==1)[1]
   try:
     indices = np.reshape(indices, X.shape[:-1])
   except ValueError:
@@ -33,5 +34,5 @@ if __name__ == "__main__":
   y = np.sin(x)
   plt.figure('quantization_test')
   plt.step(x, y)
-  plt.step(x, inverse_mu_law(unquantize(quantize(mu_law(y), n_bins), n_bins)))
+  plt.step(x, inverse_mu_law(unquantize(quantize(mu_law(y), n_bins))))
   plt.show()

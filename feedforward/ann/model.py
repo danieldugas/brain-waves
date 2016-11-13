@@ -5,7 +5,8 @@ class ModelParams:
   def __init__(self):
     self.INPUT_SHAPE = [1000]
     self.HIDDEN_LAYERS = [{'shape': [200]}, {'shape': [100]}, {'shape': [100]}, {'shape': [100]}]
-    self.OUTPUT_SHAPE = [100,256]
+    self.WAVE_OUT_SHAPE = [10]
+    self.QUANTIZATION = 256
     self.LEARNING_RATE = 0.0001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
@@ -36,7 +37,7 @@ def n_dimensional_weightmul(L, W, L_shape, Lout_shape, first_dim_of_l_is_batch=T
   einsum_string = 'b'+l_subscripts+','+l_subscripts+lout_subscripts+'->'+'b'+lout_subscripts
   return tf.einsum(einsum_string,L,W)
 
-class Autoencoder(object):
+class Feedforward(object):
   def __init__(self, model_params):
     self.MP = model_params
 
@@ -52,12 +53,11 @@ class Autoencoder(object):
         default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
         self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
       self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                               shape=[preset_batch_size] + self.MP.OUTPUT_SHAPE,
+                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION],
                                                name="output")
       self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                                 shape=[preset_batch_size] + self.MP.OUTPUT_SHAPE,
+                                                 shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
                                                  name="output")
-    # Encoder
     previous_layer = self.input_placeholder
     previous_layer_shape = self.MP.INPUT_SHAPE # Excludes batch dim (which should be at pos 0)
     # Flatten output
@@ -66,13 +66,13 @@ class Autoencoder(object):
     previous_layer = tf.reshape(previous_layer, shape=[-1]+previous_layer_shape, name="flatten")
     # Fully connected Layers
     for i, LAYER in enumerate(self.MP.HIDDEN_LAYERS):
-      with tf.name_scope('EncoderLayer'+str(i)) as scope:
+      with tf.name_scope('Layer'+str(i)) as scope:
         layer_shape = LAYER['shape']
-        with tf.variable_scope('EncoderLayer'+str(i)+'Weights') as varscope:
-          weights = tf.get_variable("weights_encoder_"+str(i), dtype=self.MP.FLOAT_TYPE,
+        with tf.variable_scope('Layer'+str(i)+'Weights') as varscope:
+          weights = tf.get_variable("weights_layer_"+str(i), dtype=self.MP.FLOAT_TYPE,
                                     shape=previous_layer_shape + layer_shape,
                                     initializer=tf.contrib.layers.xavier_initializer())
-          biases  = tf.get_variable("biases_encoder_"+str(i) , dtype=self.MP.FLOAT_TYPE,
+          biases  = tf.get_variable("biases_layer_"+str(i) , dtype=self.MP.FLOAT_TYPE,
                                     shape=layer_shape,
                                     initializer=tf.constant_initializer(0))
         self.variables.append(weights)
@@ -88,21 +88,71 @@ class Autoencoder(object):
         # set up next loop
         previous_layer = layer_output
         previous_layer_shape = layer_shape
-    # Unflatten output
-    previous_layer = tf.reshape(previous_layer, shape=[-1]+self.shape_before_flattening, name="unflatten")
-    previous_layer_shape = self.shape_before_flattening
     # Output (as probability of output being 1)
-    self.output = tf.nn.softmax(previous_layer)
+    with tf.name_scope('OutputLayer') as scope:
+      layer_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
+      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
+      with tf.variable_scope('OutputLayerWeights') as varscope:
+        weights = tf.get_variable("weights_output", dtype=self.MP.FLOAT_TYPE,
+                                  shape=previous_layer_shape + layer_shape,
+                                  initializer=tf.contrib.layers.xavier_initializer())
+        biases  = tf.get_variable("biases_output" , dtype=self.MP.FLOAT_TYPE,
+                                  shape=layer_shape,
+                                  initializer=tf.constant_initializer(0))
+      self.variables.append(weights)
+      self.variables.append(biases)
+      layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
+                                                                   weights,
+                                                                   previous_layer_shape,
+                                                                   layer_shape),
+                                           biases),
+                                    name='softplus')
+      if self.MP.DROPOUT is not None:
+        layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
+      # Unflatten output
+      output_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
+      unflattened = tf.reshape(layer_output, shape=[-1]+output_shape, name="unflatten")
+      self.output = tf.nn.softmax(unflattened)
+    # Sleep prediction
+    with tf.name_scope('IsSleepLayer') as scope:
+      layer_shape = self.MP.WAVE_OUT_SHAPE
+      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
+      with tf.variable_scope('IsSleepLayerWeights') as varscope:
+        weights = tf.get_variable("weights_is_sleep", dtype=self.MP.FLOAT_TYPE,
+                                  shape=previous_layer_shape + layer_shape,
+                                  initializer=tf.contrib.layers.xavier_initializer())
+        biases  = tf.get_variable("biases_is_sleep" , dtype=self.MP.FLOAT_TYPE,
+                                  shape=layer_shape,
+                                  initializer=tf.constant_initializer(0))
+      self.variables.append(weights)
+      self.variables.append(biases)
+      layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
+                                                                   weights,
+                                                                   previous_layer_shape,
+                                                                   layer_shape),
+                                           biases),
+                                    name='softplus')
+      if self.MP.DROPOUT is not None:
+        layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
+      # Unflatten output
+      is_sleep_shape = self.MP.WAVE_OUT_SHAPE
+      self.is_sleep = tf.reshape(layer_output, shape=[-1]+is_sleep_shape, name="unflatten")
     # Loss
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
         # Cross entropy loss of output probabilities vs. target certainties.
         reconstruction_loss = \
-            -tf.reduce_sum(self.input_placeholder * tf.log(1e-10 + self.output, name="log1")
-                           + (1-self.input_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
-                           list(range(1,len(self.MP.INPUT_SHAPE)+1)))
+            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
+                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
+                           list(range(1,len(output_shape)+1)))
+      with tf.name_scope('IsSleepLoss') as sub_scope:
+        # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
+        is_sleep_loss = \
+            -tf.reduce_sum(self.is_sleep_placeholder * tf.log(1e-10 + self.is_sleep, name="log3")
+                           + (1-self.is_sleep_placeholder) * tf.log(1e-10 + (1 - self.is_sleep), name="log4"),
+                           list(range(1,len(is_sleep_shape)+1)))
       # Average sum of costs over batch.
-      self.cost = tf.reduce_mean(reconstruction_loss + latent_loss + coercion_loss, name="cost")
+      self.cost = tf.reduce_mean(reconstruction_loss + is_sleep_loss, name="cost")
     # Optimizer (ADAM)
     with tf.name_scope('Optimizer') as scope:
       self.optimizer = tf.train.AdamOptimizer(learning_rate=self.MP.LEARNING_RATE).minimize(self.cost)
@@ -122,29 +172,20 @@ class Autoencoder(object):
     self.saver = tf.train.Saver(variable_names)
 
   ## Example functions for different ways to call the autoencoder graph.
-  def encode(self, batch_input):
-    return self.sess.run((self.z_mean, self.z_log_sigma_squared),
+  def predict(self, batch_input):
+    return self.sess.run((self.output, self.is_sleep),
                          feed_dict={self.input_placeholder: batch_input})
-  def decode(self, batch_z):
-    return self.sess.run(self.output,
-                         feed_dict={self.z_sample: batch_z})
-  def encode_decode(self, batch_input):
-    return self.sess.run(self.output,
-                         feed_dict={self.input_placeholder: batch_input})
-  def train_on_single_batch(self, batch_input, batch_latent_targets=[], cost_only=False, dropout=None):
+  def train_on_single_batch(self, batch_input, batch_target, batch_is_sleep, cost_only=False, dropout=None):
     # feed placeholders
+    from ann.quantize import quantize, mu_law
     dict_ = {self.input_placeholder: batch_input}
+    dict_[self.target_placeholder] = quantize(mu_law(batch_target), n_bins=self.MP.QUANTIZATION)
+    dict_[self.is_sleep_placeholder] = batch_is_sleep
     if self.MP.DROPOUT is not None:
       dict_[self.dropout_placeholder] = self.MP.DROPOUT if dropout is None else dropout
     else:
       if dropout is not None:
         raise ValueError('This model does not implement dropout yet a value was specified')
-    if len(self.MP.COERCED_LATENT_DIMS) != len(batch_latent_targets):
-      print(self.MP.COERCED_LATENT_DIMS)
-      print(batch_latent_targets)
-      raise ValueError('latent_dim_targets are missing, but required')
-    for placeholder, target in zip(self.latent_placeholders, batch_latent_targets):
-      dict_[placeholder] = target
     # compute
     if cost_only:
       cost = self.sess.run(self.cost,
@@ -153,15 +194,11 @@ class Autoencoder(object):
       cost, _, _ = self.sess.run((self.cost, self.optimizer, self.catch_nans),
                                  feed_dict=dict_)
     return cost
-  def cost_on_single_batch(self, batch_input, batch_latent_targets=[]):
-    return self.train_on_single_batch(batch_input, batch_latent_targets, cost_only=True, dropout=1.0)
+  def cost_on_single_batch(self, batch_input, batch_target, batch_is_sleep):
+    return self.train_on_single_batch(batch_input, batch_target, batch_is_sleep, cost_only=True, dropout=1.0)
 
-  def batch_encode(self, batch_input, batch_size=200, verbose=True):
-    return batch_generic_func(self.encode, batch_input, batch_size, verbose)
-  def batch_decode(self, batch_input, batch_size=200, verbose=True):
-    return batch_generic_func(self.decode, batch_input, batch_size, verbose)
-  def batch_encode_decode(self, batch_input, batch_size=100, verbose=True):
-    return batch_generic_func(self.encode_decode, batch_input, batch_size, verbose)
+  def batch_predict(self, batch_input, batch_size=200, verbose=True):
+    return batch_generic_func(self.predict, batch_input, batch_size, verbose)
 
 def concat(a, b):
   if isinstance(a, list):

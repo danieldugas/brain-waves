@@ -235,6 +235,7 @@ train_is_sleep = is_sleep_wave[split_at:][:MAX_TRAIN_DATA_LENGTH]
 
 from timeit import default_timer as timer
 from ann.batchmaker import Batchmaker, progress_bar
+progress_bar('reset')
 
 total_step_cost = None
 step_cost_log = []

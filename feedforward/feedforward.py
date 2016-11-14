@@ -67,6 +67,7 @@ MP = model.ModelParams()
 MP.INPUT_SHAPE = [1000]
 MP.WAVE_OUT_SHAPE = [100]
 MP.HIDDEN_LAYERS = [{'shape': [400]}, {'shape': [400]}]
+MP.QUANTIZATION = 10
 MP.DROPOUT = 0.8
 MP.LEARNING_RATE = 0.00001
 
@@ -77,6 +78,7 @@ DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
 SAMPLING = 1
 MAX_VAL_DATA_LENGTH = 100000000
 MAX_TRAIN_DATA_LENGTH = 400000000
+TINY_DATASET = False
 FILTER_IN_SLEEP_WAVES = True
 
 RESTORE_MODEL = True
@@ -110,6 +112,9 @@ if SET_MARMOT_PARAMS:
 if not RUN_AS_PY_SCRIPT:
     #MAX_STEPS = 0
     VAL_STEP_TOLERANCE = 10
+    MP.QUANTIZATION = 10
+    MP.HIDDEN_LAYERS = [{'shape': [100]}, {'shape': [20]}]
+    TINY_DATASET = True
 
 
 # In[ ]:
@@ -152,7 +157,7 @@ if True:
   mat = scipy.io.loadmat(DATA_DIR+DATA_FILENAME)
   raw_wave = mat.get('data')[0]
   raw_wave = raw_wave[::SAMPLING]
-  raw_wave = raw_wave/1000
+  raw_wave = raw_wave/100 # volts -> microvolts
   raw_wave[np.where(raw_wave>1)] = 1
   raw_wave[np.where(raw_wave<-1)] = -1
   wave_indices = mat.get('wave')[0].astype(int)
@@ -175,16 +180,7 @@ example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
 
 # In[ ]:
 
-if not RUN_AS_PY_SCRIPT:
-  plt.figure()
-  i = 0
-  plt.plot(raw_wave[wave_indices[0,i]:wave_indices[4,i]])
-  plt.show()
-
-
-# In[ ]:
-
-if True:
+if TINY_DATASET:
   raw_wave = raw_wave[np.where(example_contains_sw)[0][0]:][:10000]
   is_sleep_wave = is_sleep_wave[np.where(example_contains_sw)[0][0]:][:10000]
   example_contains_sw = example_contains_sw[np.where(example_contains_sw)[0][0]:][:10000]
@@ -370,25 +366,55 @@ print("Training ended.")
 # In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
-  test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=example_contains_sw, shuffle_examples=True)
-  X, Y, IS = test_batchmaker.next_batch()
-  Y_pred, IS_pred = ff.predict(X)
+  plt.close('all')
+  import time
+  from ann.batchmaker import Batchmaker
+  
+  total_step_cost = None
+  step_cost_log = []
+
+  # single step
+  while True:
+      # Validation
+      test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=val_contains_sw, shuffle_examples=True)
+      X, Y, IS = test_batchmaker.next_batch()
+      Y_pred, IS_pred = ff.predict(X)
+      from ann.quantize import pick_max, inverse_mu_law, unquantize
+      plt.clf()
+      plt.figure('training_evo')
+      plt.subplot(2,2,1)
+      plt.plot(X[0])
+      plt.subplot(2,2,2)
+      plt.plot(Y[0], label='ground truth')
+      y = inverse_mu_law(unquantize(pick_max(Y_pred[0])))
+      plt.step(range(len(y)), y, label='prediction')
+      plt.legend()
+      plt.subplot(2,2,4)
+      plt.step(range(len(IS[0])), IS[0], label='ground truth')
+      plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
+      plt.ylim([-0.1, 1.1])
+      plt.subplot(2,2,3)
+      plt.plot(step_cost_log)
+      plt.show()
+      #plt.legend()
+      plt.gcf().canvas.draw()
+      time.sleep(0.1)
+    
+      # Train on batches
+      total_step_cost = 0
+      training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=train_contains_sw)
+      while True:
+        if training_batchmaker.is_depleted():
+          break
+        else:
+          batch_input_values, batch_target_values, batch_is_sleep_values = training_batchmaker.next_batch()
+          # Train over 1 batch.
+          cost_value = ff.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
+          total_step_cost += cost_value
+      step_cost_log.append(total_step_cost)
 
 
 # In[ ]:
 
-if not RUN_AS_PY_SCRIPT:
-  from ann.quantize import pick_max, inverse_mu_law, unquantize
-  plt.figure()
-  plt.plot(X[0])
-  plt.figure()
-  plt.plot(Y[0], label='ground truth')
-  plt.plot(inverse_mu_law(unquantize(pick_max(Y_pred[0]))), label='prediction')
-  plt.legend()
-  plt.figure()
-  plt.step(range(len(IS[0])), IS[0], label='ground truth')
-  plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
-  plt.ylim([-0.1, 1.1])
-  plt.show()
-  plt.legend()
+
 

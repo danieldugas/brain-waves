@@ -108,8 +108,8 @@ if SET_MARMOT_PARAMS:
 if not RUN_AS_PY_SCRIPT:
     MAX_STEPS = 0
     
-    MAX_VAL_DATA_LENGTH = 10000
-    MAX_TRAIN_DATA_LENGTH = 40000
+    #MAX_VAL_DATA_LENGTH = 10000
+    #MAX_TRAIN_DATA_LENGTH = 40000
 
 
 # In[ ]:
@@ -163,6 +163,14 @@ if True:
 is_sleep_wave = np.zeros(raw_wave.shape)
 for i in range(wave_indices.shape[1]):
   is_sleep_wave[wave_indices[0,i]:wave_indices[4,i]] = 1
+
+
+# In[ ]:
+
+example_contains_sw = np.zeros(raw_wave.shape)
+for i in range(wave_indices.shape[1]):
+  example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
+example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
 
 
 # In[ ]:
@@ -252,7 +260,7 @@ except:
 # single step
 for step in range(MAX_STEPS):
   # Validation
-  val_batchmaker = Batchmaker(val, val_is_sleep, BATCH_SIZE, MP)
+  val_batchmaker = Batchmaker(val, val_is_sleep, BATCH_SIZE, MP, example_filter=example_contains_sw)
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
     total_val_cost = 0
     while True:
@@ -308,7 +316,7 @@ for step in range(MAX_STEPS):
   zero = timer() - timer()
   step_times = {'batchmaking': zero, 'training': zero, 'plotting': zero}
   total_step_cost = 0
-  training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP)
+  training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=example_contains_sw)
   while True:
     if training_batchmaker.is_depleted():
       break
@@ -338,7 +346,7 @@ print("Training ended.")
 # In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
-  test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, shuffle_examples=False)
+  test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=example_contains_sw, shuffle_examples=True)
   X, Y, IS = test_batchmaker.next_batch()
   Y_pred, IS_pred = ff.predict(X)
 
@@ -348,12 +356,15 @@ if not RUN_AS_PY_SCRIPT:
 if not RUN_AS_PY_SCRIPT:
   from ann.quantize import pick_max, inverse_mu_law, unquantize
   plt.figure()
+  plt.plot(X[0])
+  plt.figure()
   plt.plot(Y[0], label='ground truth')
   plt.plot(inverse_mu_law(unquantize(pick_max(Y_pred[0]))), label='prediction')
   plt.legend()
   plt.figure()
   plt.step(range(len(IS[0])), IS[0], label='ground truth')
   plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
+  plt.ylim([-0.1, 1.1])
   plt.show()
   plt.legend()
 

@@ -56,10 +56,12 @@ class Batchmaker:
 
 def progress_bar(batchmaker):
   path = '/tmp/training_log.csv'
+  # Reset behavior
   if batchmaker == 'reset':
-    from os import remove
-    remove(path)
+    with open(path, 'w') as file:
+      file.write('')
     return 0
+  # Actual function
   import time
   with open(path, 'a') as file:
     file.write(str(time.time()) + ' ' + str(batchmaker.n_batches_consumed()) + ' ' +

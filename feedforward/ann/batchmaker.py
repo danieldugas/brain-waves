@@ -8,7 +8,7 @@ class Batchmaker:
         self.target_shape = model_params.WAVE_OUT_SHAPE
         self.example_width = self.input_shape[0] + self.target_shape[0]
         # create example indices list
-        self.remaining_example_indices = list(range(len(input_data) - self.example_width))
+        self.remaining_example_indices = list(range(len(input_data) - self.example_width))[::-1]
         #   shuffle list if required
         if shuffle_examples:
             from random import shuffle
@@ -33,13 +33,12 @@ class Batchmaker:
         batch_is_sleep_values = np.zeros([self.examples_per_batch] + self.target_shape)
         for i_example in range(self.examples_per_batch):
           # Create training example at index 'pos' in input_data.
-          pos = self.remaining_example_indices.pop(0)
-          input_slice = slice(pos, pos+self.input_shape[0])
-          target_slice = slice(pos+self.input_shape[0], pos+self.example_width)
+          pos = self.remaining_example_indices.pop()
           # extract data
-          batch_input_values[i_example]    = self.input_data[input_slice]
-          batch_target_values[i_example]   = self.input_data[target_slice]
-          batch_is_sleep_values[i_example] = self.is_sleep_data[target_slice]
+          example_data = self.input_data[pos:pos+self.example_width]
+          batch_input_values[i_example]    = example_data[:self.input_shape[0]]
+          batch_target_values[i_example]   = example_data[self.input_shape[0]]
+          batch_is_sleep_values[i_example] = self.is_sleep_data[pos+self.input_shape[0]:pos+self.example_width]
 
         self.batches_consumed_counter += 1
 

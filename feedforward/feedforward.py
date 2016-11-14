@@ -277,7 +277,7 @@ try:
 except:
     val_cost_log = []
     
-# single step
+print("Training started.")
 for step in range(MAX_STEPS):
   # Validation
   val_batchmaker = Batchmaker(val, val_is_sleep, BATCH_SIZE, MP, example_filter=val_contains_sw)
@@ -379,16 +379,17 @@ if not RUN_AS_PY_SCRIPT:
       test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=val_contains_sw, shuffle_examples=True)
       X, Y, IS = test_batchmaker.next_batch()
       Y_pred, IS_pred = ff.predict(X)
-      from ann.quantize import pick_max, inverse_mu_law, unquantize
+      from ann.quantize import *
       plt.clf()
       plt.figure('training_evo')
       plt.subplot(2,2,1)
       plt.plot(X[0])
       plt.subplot(2,2,2)
-      plt.plot(Y[0], label='ground truth')
+      y = inverse_mu_law(unquantize(quantize(mu_law(Y[0]),MP.QUANTIZATION)))
+      plt.step(range(len(y)), y, label='ground truth')
       y = inverse_mu_law(unquantize(pick_max(Y_pred[0])))
       plt.step(range(len(y)), y, label='prediction')
-      plt.legend()
+      plt.plot(Y[0])
       plt.subplot(2,2,4)
       plt.step(range(len(IS[0])), IS[0], label='ground truth')
       plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
@@ -396,7 +397,6 @@ if not RUN_AS_PY_SCRIPT:
       plt.subplot(2,2,3)
       plt.plot(step_cost_log)
       plt.show()
-      #plt.legend()
       plt.gcf().canvas.draw()
       time.sleep(0.1)
     

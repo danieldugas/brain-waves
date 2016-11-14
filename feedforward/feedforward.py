@@ -58,8 +58,6 @@ if not RUN_AS_PY_SCRIPT:
 # In[ ]:
 
 BATCH_SIZE = 100
-VAL_EARLY_DEPLETION = 100
-TRAIN_EARLY_DEPLETION = 1000
 
 MAX_STEPS = 10000
 VAL_EVERY_N_STEPS = 1
@@ -68,6 +66,7 @@ VAL_STEP_TOLERANCE = 3
 MP = model.ModelParams()
 MP.INPUT_SHAPE = [1000]
 MP.WAVE_OUT_SHAPE = [100]
+MP.HIDDEN_LAYERS = [{'shape': [400]}, {'shape': [400]}]
 MP.DROPOUT = 0.8
 MP.LEARNING_RATE = 0.00001
 
@@ -118,7 +117,10 @@ if not RUN_AS_PY_SCRIPT:
 if RUN_AS_PY_SCRIPT:
   while argv:
       arg = argv.pop(0)
-      if arg == "-SAVE_DIR":
+      if arg == "-VAL_STEP_TOLERANCE":
+        VAL_STEP_TOLERANCE = int(argv.pop(0))
+        print("VAL_STEP_TOLERANCE set to " + str(VAL_STEP_TOLERANCE))
+      elif arg == "-SAVE_DIR":
         SAVE_DIR = argv.pop(0)
         print("SAVE_DIR set to " + SAVE_DIR)
       elif arg == "-CLIP_GRADIENTS":
@@ -165,16 +167,27 @@ is_sleep_wave = np.zeros(raw_wave.shape)
 for i in range(wave_indices.shape[1]):
   is_sleep_wave[wave_indices[0,i]:wave_indices[4,i]] = 1
 
+example_contains_sw = np.zeros(raw_wave.shape)
+for i in range(wave_indices.shape[1]):
+  example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
+example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
+
 
 # In[ ]:
 
-if FILTER_IN_SLEEP_WAVES:
-  example_contains_sw = np.zeros(raw_wave.shape)
-  for i in range(wave_indices.shape[1]):
-    example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
-  example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
-else:
-  example_contains_sw = None
+if not RUN_AS_PY_SCRIPT:
+  plt.figure()
+  i = 0
+  plt.plot(raw_wave[wave_indices[0,i]:wave_indices[4,i]])
+  plt.show()
+
+
+# In[ ]:
+
+if True:
+  raw_wave = raw_wave[np.where(example_contains_sw)[0][0]:][:10000]
+  is_sleep_wave = is_sleep_wave[np.where(example_contains_sw)[0][0]:][:10000]
+  example_contains_sw = example_contains_sw[np.where(example_contains_sw)[0][0]:][:10000]
 
 
 # In[ ]:
@@ -182,10 +195,7 @@ else:
 if not RUN_AS_PY_SCRIPT:
   plt.figure()
   plotting_function(range(len(raw_wave)),raw_wave,label="raw_wave")
-  plt.show()
-  plt.figure()
-  i = 0
-  plt.plot(raw_wave[wave_indices[0,i]:wave_indices[4,i]])
+  plotting_function(range(len(is_sleep_wave)), is_sleep_wave, label="is_sleep_wave")
   plt.show()
 
 
@@ -241,6 +251,16 @@ train = raw_wave[split_at:][:MAX_TRAIN_DATA_LENGTH]
 train_is_sleep = is_sleep_wave[split_at:][:MAX_TRAIN_DATA_LENGTH]
 
 
+# In[ ]:
+
+if FILTER_IN_SLEEP_WAVES:
+  val_contains_sw = example_contains_sw[:split_at]
+  train_contains_sw = example_contains_sw[split_at:][:MAX_TRAIN_DATA_LENGTH]
+else:
+  val_contains_sw = None
+  train_contains_sw = None
+
+
 # ## Train Model ( Computationally Intensive )
 
 # In[ ]:
@@ -264,7 +284,7 @@ except:
 # single step
 for step in range(MAX_STEPS):
   # Validation
-  val_batchmaker = Batchmaker(val, val_is_sleep, BATCH_SIZE, MP, example_filter=example_contains_sw)
+  val_batchmaker = Batchmaker(val, val_is_sleep, BATCH_SIZE, MP, example_filter=val_contains_sw)
   if np.mod(step, VAL_EVERY_N_STEPS) == 0:
     total_val_cost = 0
     while True:
@@ -320,7 +340,7 @@ for step in range(MAX_STEPS):
   zero = timer() - timer()
   step_times = {'batchmaking': zero, 'training': zero, 'plotting': zero}
   total_step_cost = 0
-  training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=example_contains_sw)
+  training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=train_contains_sw)
   while True:
     if training_batchmaker.is_depleted():
       break

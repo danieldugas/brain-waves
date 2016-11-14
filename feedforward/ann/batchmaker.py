@@ -34,13 +34,12 @@ class Batchmaker:
         for i_example in range(self.examples_per_batch):
           # Create training example at index 'pos' in input_data.
           pos = self.remaining_example_indices.pop(0)
-          example_slice = list(range(pos,pos+self.example_width))
-          input_slice = example_slice[:self.input_shape[0]]
-          target_slice = example_slice[self.input_shape[0]:]
+          input_slice = slice(pos, pos+self.input_shape[0])
+          target_slice = slice(pos+self.input_shape[0], pos+self.example_width)
           # extract data
-          batch_input_values[i_example] = np.reshape(self.input_data[input_slice], self.input_shape)
-          batch_target_values[i_example] = np.reshape(self.input_data[target_slice], self.target_shape)
-          batch_is_sleep_values[i_example] = np.reshape(self.is_sleep_data[target_slice], self.target_shape)
+          batch_input_values[i_example]    = self.input_data[input_slice]
+          batch_target_values[i_example]   = self.input_data[target_slice]
+          batch_is_sleep_values[i_example] = self.is_sleep_data[target_slice]
 
         self.batches_consumed_counter += 1
 

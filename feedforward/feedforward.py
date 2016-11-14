@@ -57,7 +57,9 @@ if not RUN_AS_PY_SCRIPT:
 
 # In[ ]:
 
-BATCH_SIZE = 1000
+BATCH_SIZE = 100
+VAL_EARLY_DEPLETION = 100
+TRAIN_EARLY_DEPLETION = 1000
 
 MAX_STEPS = 10000
 VAL_EVERY_N_STEPS = 1
@@ -76,6 +78,7 @@ DATA3_FILENAME="034_Session1_FilterTrigCh_RawCh.mat"
 SAMPLING = 1
 MAX_VAL_DATA_LENGTH = 100000000
 MAX_TRAIN_DATA_LENGTH = 400000000
+FILTER_IN_SLEEP_WAVES = True
 
 RESTORE_MODEL = True
 SAVE_DIR = "/home/daniel/Desktop/feedforward/"
@@ -106,10 +109,8 @@ if SET_MARMOT_PARAMS:
     VAL_STEP_TOLERANCE = 10
     
 if not RUN_AS_PY_SCRIPT:
-    MAX_STEPS = 0
-    
-    #MAX_VAL_DATA_LENGTH = 10000
-    #MAX_TRAIN_DATA_LENGTH = 40000
+    #MAX_STEPS = 0
+    VAL_STEP_TOLERANCE = 10
 
 
 # In[ ]:
@@ -167,10 +168,13 @@ for i in range(wave_indices.shape[1]):
 
 # In[ ]:
 
-example_contains_sw = np.zeros(raw_wave.shape)
-for i in range(wave_indices.shape[1]):
-  example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
-example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
+if FILTER_IN_SLEEP_WAVES:
+  example_contains_sw = np.zeros(raw_wave.shape)
+  for i in range(wave_indices.shape[1]):
+    example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
+  example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
+else:
+  example_contains_sw = None
 
 
 # In[ ]:

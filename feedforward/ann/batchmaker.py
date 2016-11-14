@@ -37,7 +37,7 @@ class Batchmaker:
           # extract data
           example_data = self.input_data[pos:pos+self.example_width]
           batch_input_values[i_example]    = example_data[:self.input_shape[0]]
-          batch_target_values[i_example]   = example_data[self.input_shape[0]]
+          batch_target_values[i_example]   = example_data[self.input_shape[0]:]
           batch_is_sleep_values[i_example] = self.is_sleep_data[pos+self.input_shape[0]:pos+self.example_width]
 
         self.batches_consumed_counter += 1

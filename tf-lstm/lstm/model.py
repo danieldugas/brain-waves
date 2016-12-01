@@ -53,26 +53,19 @@ class LSTM(object):
 
     # Graph input
     with tf.name_scope('Placeholders') as scope:
-      self.input_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                              shape=[preset_batch_size] +
-                                              self.MP.WAVE_IN_SHAPE,
-                                              name="input")
+      # Placeholders
       if self.MP.DROPOUT is not None:
         default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
         self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
-      self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION],
-                                               name="output")
-      # Placeholders
-      default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
-      self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
-      with tf.name_scope("InputPlaceholders") as scope:
+      else:
+        self.dropout_placeholder = None
+      with tf.name_scope("InputPlaceholders") as subscope:
         self.input_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, 
                                                   shape=[preset_batch_size] +
                                                   self.MP.WAVE_IN_SHAPE,
                                                   name="input")
                                    for i in range(self.MP.OUTSET_CUTOFF)]
-      with tf.name_scope("StatePlaceholders") as scope:
+      with tf.name_scope("StatePlaceholders") as subscope:
         self.c_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="c_state"+str(i))
                                      for i in range(self.MP.N_LAYERS)]
         self.h_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="h_state"+str(i)) 
@@ -80,7 +73,7 @@ class LSTM(object):
         self.initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) 
                                    for c_state, h_state 
                                    in zip(self.c_state_placeholders, self.h_state_placeholders))
-      with tf.name_scope("TargetPlaceholder") as scope:
+      with tf.name_scope("TargetPlaceholder") as subscope:
         self.target_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.OUTPUT_SIZE), name="target"+str(i))
                                     for i in
                                     range(self.MP.BPTT_LENGTH-self.MP.WAVE_IN_SHAPE[0])]
@@ -88,27 +81,35 @@ class LSTM(object):
                                                    shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
                                                    name="output")
 
-      # Cells
-      stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
-          [tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.LSTMCell(self.MP.NUM_UNITS, state_is_tuple=True),
-                                         output_keep_prob=self.dropout_placeholder)
-           for i in range(self.MP.N_LAYERS)], state_is_tuple=True)
-      # Homemade seq2seq unrolling of the cells
-      from tensorflow.python.ops import variable_scope as vs
-      state = self.initial_state
-      self.unrolled_outputs = []
-      with tf.variable_scope("RNN") as scope:
-          for time, input_ in enumerate(input_placeholders):
-             if time > 0:
-                scope.reuse_variables()
-             (state_out, state) = stacked_lstm_cell(input_, state)
-             output = self.state2out(state_out)
-          for i in range(MP.WAVE_OUT_SHAPE[0]):
-             scope.reuse_variables()
-             input_ = self.out2in(output)
-             (state_out, state) = stacked_lstm_cell(input_, state)
-             output = self.state2out(state_out)
-             self.unrolled_outputs.append(output)
+    def removable_dropout_wrapper(cell, keep_prob_placeholder):
+        if keep_prob_placeholder == None:
+            return cell
+        else 
+            return tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob = keep_prob_placeholder)
+
+
+
+    # Cells
+    stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
+        [removable_dropout_wrapper(tf.nn.rnn_cell.LSTMCell(self.MP.NUM_UNITS, state_is_tuple=True), self.dropout_placeholder)
+         for i in range(self.MP.N_LAYERS)]
+                                                    , state_is_tuple=True)
+    # Homemade seq2seq unrolling of the cells
+    from tensorflow.python.ops import variable_scope as vs
+    state = self.initial_state
+    self.unrolled_outputs = []
+    with tf.variable_scope("RNN") as scope:
+        for time, input_ in enumerate(input_placeholders):
+           if time > 0:
+              scope.reuse_variables()
+           (state_out, state) = stacked_lstm_cell(input_, state)
+           output = self.state2out(state_out)
+        for i in range(MP.WAVE_OUT_SHAPE[0]):
+           scope.reuse_variables()
+           input_ = self.out2in(output)
+           (state_out, state) = stacked_lstm_cell(input_, state)
+           output = self.state2out(state_out)
+           self.unrolled_outputs.append(output)
 
 
     previous_layer = self.input_placeholder

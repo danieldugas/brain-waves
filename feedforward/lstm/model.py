@@ -5,10 +5,10 @@ from lstm.quantize import *
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [10, 1] # [timesteps, channels]
-    self.WAVE_OUT_SHAPE = [5, 1]
+    self.WAVE_IN_SHAPE = [100, 1] # [timesteps, channels]
+    self.WAVE_OUT_SHAPE = [10, 1]
     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
-    self.LEARNING_RATE = 0.0001
+    self.LEARNING_RATE = 0.001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
     self.FLOAT_TYPE = tf.float64
@@ -61,11 +61,11 @@ class LSTM(object):
       else:
         self.dropout_placeholder = None
       self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
-                                               name="output")
+                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + self.estimator_shape,
+                                               name="target")
       self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
                                                  shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
-                                                 name="output")
+                                                 name="is_sleep")
       with tf.name_scope("StatePlaceholders") as subscope:
         self.c_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS))
                                      for i in range(self.MP.N_LAYERS)]
@@ -119,37 +119,41 @@ class LSTM(object):
       # Homemade seq2seq unrolling
       state = self.initial_state
       self.unrolled_outputs = []
+      self.unrolled_raw_outputs = []
       self.unrolled_is_sleep = []
       for time, input_ in enumerate(self.inputs):
          if time > 0:
             scope.reuse_variables()
          (state_out, state) = stacked_lstm_cell(input_, state)
-         output = self.state2out(state_out)
+         output, _ = self.state2out(state_out)
       for i in range(self.MP.WAVE_OUT_SHAPE[0]):
          scope.reuse_variables()
          input_ = output
          (state_out, state) = stacked_lstm_cell(input_, state)
          with tf.name_scope('OutProjectionLayer') as subscope:
            with tf.variable_scope('OutProjectionWeights') as varscope:
-             output = self.state2out(state_out)
+             output, raw_output = self.state2out(state_out)
          with tf.name_scope('IswProjectionLayer') as subscope:
            with tf.variable_scope('IswProjectionWeights') as varscope:
              is_sleep = self.state2isw(state_out)
          self.unrolled_outputs.append(output)
+         self.unrolled_raw_outputs.append(raw_output)
          self.unrolled_is_sleep.append(is_sleep)
       self.output = tf.pack(self.unrolled_outputs, axis=1)
+      self.raw_output = tf.nn.softmax(tf.pack(self.unrolled_raw_outputs, axis=1))
       self.is_sleep = tf.pack(self.unrolled_is_sleep, axis=1)
   
-    output_shape = self.MP.WAVE_OUT_SHAPE
+    raw_output_shape = self.MP.WAVE_OUT_SHAPE + self.estimator_shape
     is_sleep_shape = self.MP.WAVE_OUT_SHAPE
     # Loss
+    if self.MP.ESTIMATOR['type'] == 'gaussian': raise NotImplementedError
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
         # Cross entropy loss of output probabilities vs. target certainties.
         reconstruction_loss = \
-            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
-                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
-                           list(range(1,len(output_shape)+1)))
+            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.raw_output, name="log1")
+                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.raw_output), name="log2"),
+                           list(range(1,len(raw_output_shape)+1)))
       with tf.name_scope('IsSleepLoss') as sub_scope:
         # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
         is_sleep_loss = \
@@ -197,7 +201,7 @@ class LSTM(object):
                                                                               flat_layer_shape),
                                                       self.outprojbiases))
       layer_output = tf.reshape(layer_output, [-1] + layer_shape)
-      return self.est2out(layer_output, layer_shape)
+      return self.est2out(layer_output, layer_shape), layer_output
 
   # Projection layer (state->is_sleep_wave)
   def state2isw(self, state):
@@ -211,6 +215,7 @@ class LSTM(object):
                                                                    flat_layer_shape),
                                     self.iswprojbiases))
       layer_output = tf.reshape(layer_output, [-1] + layer_shape)
+      layer_output = tf.minimum(layer_output, 1)
       return layer_output
 
   def est2out(self, est, est_shape):
@@ -235,12 +240,12 @@ class LSTM(object):
     return feed_dict
 
   def predict(self, batch_input):
-    return self.sess.run((self.output, self.is_sleep),
+    return self.sess.run((self.raw_output, self.is_sleep),
                          feed_dict=self.initialize_states(len(batch_input), {self.input_placeholder: batch_input}))
   def train_on_single_batch(self, batch_input, batch_target, batch_is_sleep, cost_only=False, dropout=None):
     # feed placeholders
     dict_ = {self.input_placeholder: batch_input}
-    dict_[self.target_placeholder] = batch_target
+    dict_[self.target_placeholder] = quantize(mu_law(batch_target), n_bins=self.MP.ESTIMATOR['bins'])
     dict_[self.is_sleep_placeholder] = batch_is_sleep
     dict_ = self.initialize_states(len(batch_input), dict_)
     if self.MP.DROPOUT is not None:

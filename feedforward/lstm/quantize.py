@@ -17,7 +17,6 @@ def quantize(x, n_bins=256, x_max=1):
   flat_bins[(np.arange(len(flat_x_bin)),flat_x_bin)] = 1
   return np.reshape(flat_bins, np.shape(bins))
 
-
 def pick_max(X):
   n_bins=X.shape[-1]
   bins = np.zeros(list(np.shape(X)))

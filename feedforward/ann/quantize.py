@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 def mu_law(x, mu=255, x_max=1):
   return x_max*np.sign(x)*np.log(1+mu*np.abs(x)/x_max)/np.log(1+mu)
@@ -34,6 +35,16 @@ def unquantize(X, x_max=1):
     print(np.where(np.reshape(X, [-1,n_bins])==1))
     print(indices.shape)
     raise ValueError('Quantized array x should have shape (x.shape, n_bins), with one non-zero value per bin.')
+  return (indices/(n_bins-1) - 0.5) * 2*x_max
+
+def tf_inverse_mu_law(y, mu=255, x_max=1):
+  return x_max*tf.sign(y)*(tf.exp(tf.abs(y)*np.log(1+mu)/x_max)-1)/mu
+
+def tf_unquantize_pick_max(X, X_shape, x_max=1):
+  n_bins=X_shape[-1]
+  flat_X = tf.reshape(X, [-1,n_bins])
+  flat_X_bin = tf.argmax(flat_X, axis=1)
+  indices = tf.reshape(flat_X_bin, [-1]+X_shape[:-1])
   return (indices/(n_bins-1) - 0.5) * 2*x_max
 
 if __name__ == "__main__":

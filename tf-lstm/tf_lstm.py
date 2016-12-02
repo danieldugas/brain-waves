@@ -96,7 +96,7 @@ if SET_EULER_PARAMETERS:
 
 if PLOTTING_SUPPORT:
   import matplotlib.pyplot as plt
-  get_ipython().magic('matplotlib inline')
+  get_ipython().magic(u'matplotlib inline')
   from cycler import cycler
   if SAMPLING > 0:
       plotting_function = plt.step

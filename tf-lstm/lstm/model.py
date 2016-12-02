@@ -51,162 +51,80 @@ class LSTM(object):
   sess = tf.Session()
   tf.initialize_all_variables().run(session=sess)
 
-    # Graph input
+  # Graph input
+  with tf.name_scope('Placeholders') as scope:
     with tf.name_scope('Placeholders') as scope:
-      # Placeholders
+      self.input_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
+                                              shape=[preset_batch_size] + self.MP.WAVE_IN_SHAPE,
+                                              name="input")
       if self.MP.DROPOUT is not None:
         default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
         self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
       else:
         self.dropout_placeholder = None
-      with tf.name_scope("InputPlaceholders") as subscope:
-        self.input_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, 
-                                                  shape=[preset_batch_size] +
-                                                  self.MP.WAVE_IN_SHAPE,
-                                                  name="input")
-                                   for i in range(self.MP.OUTSET_CUTOFF)]
-      with tf.name_scope("StatePlaceholders") as subscope:
-        self.c_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="c_state"+str(i))
-                                     for i in range(self.MP.N_LAYERS)]
-        self.h_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="h_state"+str(i)) 
-                                     for i in range(self.MP.N_LAYERS)]
-        self.initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) 
-                                   for c_state, h_state 
-                                   in zip(self.c_state_placeholders, self.h_state_placeholders))
-      with tf.name_scope("TargetPlaceholder") as subscope:
-        self.target_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.OUTPUT_SIZE), name="target"+str(i))
-                                    for i in
-                                    range(self.MP.BPTT_LENGTH-self.MP.WAVE_IN_SHAPE[0])]
-        self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                                   shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
-                                                   name="output")
+      self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
+                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION],
+                                               name="output")
+      self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
+                                                 shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
+                                                 name="output")
+    with tf.name_scope("StatePlaceholders") as subscope:
+      self.c_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="c_state"+str(i))
+                                   for i in range(self.MP.N_LAYERS)]
+      self.h_state_placeholders = [tf.placeholder(self.MP.FLOAT_TYPE, shape=(preset_batch_size, self.MP.NUM_UNITS), name="h_state"+str(i)) 
+                                   for i in range(self.MP.N_LAYERS)]
+      self.initial_state = tuple(tf.nn.rnn_cell.LSTMStateTuple(c_state, h_state) 
+                                 for c_state, h_state 
+                                 in zip(self.c_state_placeholders, self.h_state_placeholders))
 
-    def removable_dropout_wrapper(cell, keep_prob_placeholder):
-        if keep_prob_placeholder == None:
-            return cell
-        else 
-            return tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob = keep_prob_placeholder)
+  def removable_dropout_wrapper(cell, keep_prob_placeholder):
+      if keep_prob_placeholder == None:
+          return cell
+      else 
+          return tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob = keep_prob_placeholder)
+  # Create stacked Cell
+  stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
+      [removable_dropout_wrapper(tf.nn.rnn_cell.LSTMCell(self.MP.NUM_UNITS, state_is_tuple=True), self.dropout_placeholder)
+       for i in range(self.MP.N_LAYERS)]
+                                                  , state_is_tuple=True)
+  # Homemade seq2seq unrolling of the cells
+  from tensorflow.python.ops import variable_scope as vs
+  state = self.initial_state
+  self.unrolled_outputs = []
+  with tf.variable_scope("RNN") as scope:
+      for time, input_ in enumerate(input_placeholders):
+         if time > 0:
+            scope.reuse_variables()
+         (state_out, state) = stacked_lstm_cell(input_, state)
+         output = self.state2out(state_out, time)
+      for i in range(MP.WAVE_OUT_SHAPE[0]):
+         scope.reuse_variables()
+         input_ = self.out2in(output, i+len(input_placeholders))
+         (state_out, state) = stacked_lstm_cell(input_, state)
+         output = self.state2out(state_out, i+len(input_placeholders))
+         is_sleep = self.state2isw(state_out, i+len(input_placeholders))
+         self.unrolled_outputs.append(output)
+         self.unrolled_is_sleep.append(is_sleep)
+  self.outputs = tf.pack(unrolled_outputs, axis=1)
+  self.is_sleep = tf.pack(unrolled_is_sleep, axis=1)
 
+  # Loss
+  with tf.name_scope('Loss') as scope:
+    with tf.name_scope('ReconstructionLoss') as sub_scope:
+      # Cross entropy loss of output probabilities vs. target certainties.
+      reconstruction_loss = \
+          -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
+                         + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
+                         list(range(1,len(output_shape)+1)))
+    with tf.name_scope('IsSleepLoss') as sub_scope:
+      # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
+      is_sleep_loss = \
+          -tf.reduce_sum(self.is_sleep_placeholder * tf.log(1e-10 + self.is_sleep, name="log3")
+                         + (1-self.is_sleep_placeholder) * tf.log(1e-10 + (1 - self.is_sleep), name="log4"),
+                         list(range(1,len(is_sleep_shape)+1)))
+    # Average sum of costs over batch.
+    self.cost = tf.reduce_mean(reconstruction_loss + is_sleep_loss, name="cost")
 
-
-    # Cells
-    stacked_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(
-        [removable_dropout_wrapper(tf.nn.rnn_cell.LSTMCell(self.MP.NUM_UNITS, state_is_tuple=True), self.dropout_placeholder)
-         for i in range(self.MP.N_LAYERS)]
-                                                    , state_is_tuple=True)
-    # Homemade seq2seq unrolling of the cells
-    from tensorflow.python.ops import variable_scope as vs
-    state = self.initial_state
-    self.unrolled_outputs = []
-    with tf.variable_scope("RNN") as scope:
-        for time, input_ in enumerate(input_placeholders):
-           if time > 0:
-              scope.reuse_variables()
-           (state_out, state) = stacked_lstm_cell(input_, state)
-           output = self.state2out(state_out)
-        for i in range(MP.WAVE_OUT_SHAPE[0]):
-           scope.reuse_variables()
-           input_ = self.out2in(output)
-           (state_out, state) = stacked_lstm_cell(input_, state)
-           output = self.state2out(state_out)
-           self.unrolled_outputs.append(output)
-
-
-    previous_layer = self.input_placeholder
-    previous_layer_shape = self.MP.WAVE_IN_SHAPE # Excludes batch dim (which should be at pos 0)
-    # Flatten output
-    self.shape_before_flattening = previous_layer_shape
-    previous_layer_shape = [np.prod(previous_layer_shape)]
-    previous_layer = tf.reshape(previous_layer, shape=[-1]+previous_layer_shape, name="flatten")
-    # Fully connected Layers
-    for i, LAYER in enumerate(self.MP.HIDDEN_LAYERS):
-      with tf.name_scope('Layer'+str(i)) as scope:
-        layer_shape = LAYER['shape']
-        with tf.variable_scope('Layer'+str(i)+'Weights') as varscope:
-          weights = tf.get_variable("weights_layer_"+str(i), dtype=self.MP.FLOAT_TYPE,
-                                    shape=previous_layer_shape + layer_shape,
-                                    initializer=tf.contrib.layers.xavier_initializer())
-          biases  = tf.get_variable("biases_layer_"+str(i) , dtype=self.MP.FLOAT_TYPE,
-                                    shape=layer_shape,
-                                    initializer=tf.constant_initializer(0))
-        self.variables.append(weights)
-        self.variables.append(biases)
-        layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
-                                                                     weights,
-                                                                     previous_layer_shape,
-                                                                     layer_shape),
-                                             biases),
-                                      name='softplus')
-        if self.MP.DROPOUT is not None:
-          layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
-        # set up next loop
-        previous_layer = layer_output
-        previous_layer_shape = layer_shape
-    # Output (as probability of output being 1)
-    with tf.name_scope('OutputLayer') as scope:
-      layer_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
-      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
-      with tf.variable_scope('OutputLayerWeights') as varscope:
-        weights = tf.get_variable("weights_output", dtype=self.MP.FLOAT_TYPE,
-                                  shape=previous_layer_shape + layer_shape,
-                                  initializer=tf.contrib.layers.xavier_initializer())
-        biases  = tf.get_variable("biases_output" , dtype=self.MP.FLOAT_TYPE,
-                                  shape=layer_shape,
-                                  initializer=tf.constant_initializer(0))
-      self.variables.append(weights)
-      self.variables.append(biases)
-      layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
-                                                                   weights,
-                                                                   previous_layer_shape,
-                                                                   layer_shape),
-                                           biases),
-                                    name='softplus')
-      if self.MP.DROPOUT is not None:
-        layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
-      # Unflatten output
-      output_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
-      unflattened = tf.reshape(layer_output, shape=[-1]+output_shape, name="unflatten")
-      self.output = tf.nn.softmax(unflattened)
-    # Sleep prediction
-    with tf.name_scope('IsSleepLayer') as scope:
-      layer_shape = self.MP.WAVE_OUT_SHAPE
-      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
-      with tf.variable_scope('IsSleepLayerWeights') as varscope:
-        weights = tf.get_variable("weights_is_sleep", dtype=self.MP.FLOAT_TYPE,
-                                  shape=previous_layer_shape + layer_shape,
-                                  initializer=tf.contrib.layers.xavier_initializer())
-        biases  = tf.get_variable("biases_is_sleep" , dtype=self.MP.FLOAT_TYPE,
-                                  shape=layer_shape,
-                                  initializer=tf.constant_initializer(0))
-      self.variables.append(weights)
-      self.variables.append(biases)
-      layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
-                                                                   weights,
-                                                                   previous_layer_shape,
-                                                                   layer_shape),
-                                           biases),
-                                    name='softplus')
-      if self.MP.DROPOUT is not None:
-        layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
-      # Unflatten output
-      is_sleep_shape = self.MP.WAVE_OUT_SHAPE
-      self.is_sleep = tf.minimum(tf.reshape(layer_output, shape=[-1]+is_sleep_shape, name="unflatten"), 1)
-    # Loss
-    with tf.name_scope('Loss') as scope:
-      with tf.name_scope('ReconstructionLoss') as sub_scope:
-        # Cross entropy loss of output probabilities vs. target certainties.
-        reconstruction_loss = \
-            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
-                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
-                           list(range(1,len(output_shape)+1)))
-      with tf.name_scope('IsSleepLoss') as sub_scope:
-        # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
-        is_sleep_loss = \
-            -tf.reduce_sum(self.is_sleep_placeholder * tf.log(1e-10 + self.is_sleep, name="log3")
-                           + (1-self.is_sleep_placeholder) * tf.log(1e-10 + (1 - self.is_sleep), name="log4"),
-                           list(range(1,len(is_sleep_shape)+1)))
-      # Average sum of costs over batch.
-      self.cost = tf.reduce_mean(reconstruction_loss + is_sleep_loss, name="cost")
   # Loss
   with tf.variable_scope("CostFunction") as scope:
     loss = [tf.square(target_placeholder - output, name="loss"+str(i)) 
@@ -235,45 +153,52 @@ class LSTM(object):
       variable_names[var.name] = var
     self.saver = tf.train.Saver(variable_names)
 
+  def estimator_output_function(x,estimator):
+      if estimator['type'] == 'variational':
+        return x
+      elif estimator['type'] == 'quantized':
+        return tf.nn.softplus(x)
+      else:
+        raise NotImplementedError
+
   # Projection layer (state->output)
-  def state2out(self, state, with_estimator=True):
+  def state2out(self, state, id_, with_estimator=True):
       previous_layer = state
       previous_layer_shape = [self.MP.NUM_UNITS]
       with tf.name_scope('OutProjectionLayer') as scope:
         layer_shape = self.MP.WAVE_OUT_SHAPE[1:] + self.estimator_shape if with_estimator else self.MP.WAVE_OUT_SHAPE[1:]
         flat_layer_shape = np.prod(layer_shape) # flatten computations
-        with tf.variable_scope('OutProjectionWeights') as varscope:
+        with tf.variable_scope('OutProjectionWeights'+str(id_)) as varscope:
           varscope.reuse_variables()
-          outprojweights = tf.get_variable("weights_out_proj", dtype=self.MP.FLOAT_TYPE,
+          outprojweights = tf.get_variable("weights_out_proj"+str(id_), dtype=self.MP.FLOAT_TYPE,
                                     shape=previous_layer_shape + flat_layer_shape,
                                     initializer=tf.contrib.layers.xavier_initializer())
-          outprojbiases  = tf.get_variable("biases_out_proj" , dtype=self.MP.FLOAT_TYPE,
+          outprojbiases  = tf.get_variable("biases_out_proj"+str(id_) , dtype=self.MP.FLOAT_TYPE,
                                     shape=flat_layer_shape,
                                     initializer=tf.constant_initializer(0))
         self.variables.append(outprojweights)
         self.variables.append(outprojbiases)
-        layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
+        layer_output = estimator_output_function(tf.add(n_dimensional_weightmul(previous_layer,
                                                                      outprojweights,
                                                                      previous_layer_shape,
                                                                      flat_layer_shape),
-                                             outprojbiases),
-                                      name='softplus')
+                                                        outprojbiases),
+                                                 self.MP.ESTIMATOR)
         layer_output = tf.reshape(layer_output, [-1] + layer_shape)
       return layer_output
 
   # Projection layer (state->is_sleep_wave)
-  def state2isw(self, state):
-      return self.state2out(state, with_estimator=False)
+  def state2isw(self, state, id_):
+      return self.state2out(state, id_, with_estimator=False)
 
-  def out2in(self, out):
+  def out2in(self, out, id_):
       if self.MP.ESTIMATOR['type'] == 'variational':
           with tf.name_scope('SampleZValues') as scope:
               # sample = mean + sigma*epsilon
               epsilon = tf.random_normal(tf.shape(self.z_mean), 0, 1,
-                                         dtype=self.MP.FLOAT_TYPE, name='randomnormal')
+                                         dtype=self.MP.FLOAT_TYPE)
               sample = tf.add(self.z_mean,
-                              tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_squared)), epsilon),
-                              name='z_sample')
+                              tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_squared)), epsilon))
               return sample
       elif self.MP.ESTIMATOR['type'] == 'quantized':
           return inverse_mu_law(unquantize(pick_max(out)))

@@ -16,6 +16,7 @@ def quantize(x, n_bins=256, x_max=1):
   flat_bins[(np.arange(len(flat_x_bin)),flat_x_bin)] = 1
   return np.reshape(flat_bins, np.shape(bins))
 
+
 def pick_max(X):
   n_bins=X.shape[-1]
   bins = np.zeros(list(np.shape(X)))
@@ -34,6 +35,16 @@ def unquantize(X, x_max=1):
     print(np.where(np.reshape(X, [-1,n_bins])==1))
     print(indices.shape)
     raise ValueError('Quantized array x should have shape (x.shape, n_bins), with one non-zero value per bin.')
+  return (indices/(n_bins-1) - 0.5) * 2*x_max
+
+def tf_inverse_mu_law(y, mu=255, x_max=1):
+  return x_max*tf.sign(y)*(tf.exp(tf.abs(y)*np.log(1+mu)/x_max)-1)/mu
+
+def tf_unquantize_pick_max(X, X_shape):
+  n_bins=X_shape[-1]
+  flat_X = tf.reshape(X, [-1,n_bins])
+  flat_X_bin = tf.argmax(flat_X, axis=1)
+  indices = tf.reshape(flat_X_bin, [-1]+X_shape[:-1])
   return (indices/(n_bins-1) - 0.5) * 2*x_max
 
 if __name__ == "__main__":

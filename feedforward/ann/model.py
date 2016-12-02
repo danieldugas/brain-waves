@@ -3,7 +3,7 @@ import tensorflow as tf
 
 class ModelParams:
   def __init__(self):
-    self.INPUT_SHAPE = [1000]
+    self.WAVE_IN_SHAPE = [1000]
     self.HIDDEN_LAYERS = [{'shape': [200]}, {'shape': [100]}, {'shape': [100]}, {'shape': [100]}]
     self.WAVE_OUT_SHAPE = [10]
     self.QUANTIZATION = 256
@@ -47,7 +47,7 @@ class Feedforward(object):
     # Graph input
     with tf.name_scope('Placeholders') as scope:
       self.input_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                              shape=[preset_batch_size] + self.MP.INPUT_SHAPE,
+                                              shape=[preset_batch_size] + self.MP.WAVE_IN_SHAPE,
                                               name="input")
       if self.MP.DROPOUT is not None:
         default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
@@ -59,7 +59,7 @@ class Feedforward(object):
                                                  shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
                                                  name="output")
     previous_layer = self.input_placeholder
-    previous_layer_shape = self.MP.INPUT_SHAPE # Excludes batch dim (which should be at pos 0)
+    previous_layer_shape = self.MP.WAVE_IN_SHAPE # Excludes batch dim (which should be at pos 0)
     # Flatten output
     self.shape_before_flattening = previous_layer_shape
     previous_layer_shape = [np.prod(previous_layer_shape)]

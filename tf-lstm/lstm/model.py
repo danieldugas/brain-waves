@@ -5,13 +5,13 @@ from lstm.quantize import *
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [1000, 1] # [timesteps, channels]
-    self.WAVE_OUT_SHAPE = [10, 1]
+    self.WAVE_IN_SHAPE = [10, 1] # [timesteps, channels]
+    self.WAVE_OUT_SHAPE = [5, 1]
     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
     self.LEARNING_RATE = 0.0001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
-    self.FLOAT_TYPE = tf.float32
+    self.FLOAT_TYPE = tf.float64
     self.NUM_UNITS = 100
     self.N_LAYERS = 3
   def __str__(self):
@@ -48,10 +48,6 @@ class LSTM(object):
     tf.reset_default_graph()
     preset_batch_size = None
     self.variables = []
-  
-    # Initialize session and write graph for visualization.
-    sess = tf.Session()
-    tf.initialize_all_variables().run(session=sess)
   
     # Graph input
     with tf.name_scope('Placeholders') as scope:
@@ -90,7 +86,6 @@ class LSTM(object):
          for i in range(self.MP.N_LAYERS)]
                                                     , state_is_tuple=True)
 
-    # Homemade seq2seq unrolling of the cells
     from tensorflow.python.ops import variable_scope as vs
     with tf.variable_scope("RNN") as scope:
       # Out projection layer
@@ -124,6 +119,7 @@ class LSTM(object):
       # Homemade seq2seq unrolling
       state = self.initial_state
       self.unrolled_outputs = []
+      self.unrolled_is_sleep = []
       for time, input_ in enumerate(self.inputs):
          if time > 0:
             scope.reuse_variables()
@@ -141,9 +137,11 @@ class LSTM(object):
              is_sleep = self.state2isw(state_out)
          self.unrolled_outputs.append(output)
          self.unrolled_is_sleep.append(is_sleep)
-      self.outputs = tf.pack(unrolled_outputs, axis=1)
-      self.is_sleep = tf.pack(unrolled_is_sleep, axis=1)
+      self.output = tf.pack(self.unrolled_outputs, axis=1)
+      self.is_sleep = tf.pack(self.unrolled_is_sleep, axis=1)
   
+    output_shape = self.MP.WAVE_OUT_SHAPE
+    is_sleep_shape = self.MP.WAVE_OUT_SHAPE
     # Loss
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
@@ -208,10 +206,10 @@ class LSTM(object):
       layer_shape = self.MP.WAVE_OUT_SHAPE[1:]
       flat_layer_shape = [np.prod(layer_shape)] # flatten computations
       layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
-                                                                   self.outprojweights,
+                                                                   self.iswprojweights,
                                                                    previous_layer_shape,
                                                                    flat_layer_shape),
-                                    self.outprojbiases))
+                                    self.iswprojbiases))
       layer_output = tf.reshape(layer_output, [-1] + layer_shape)
       return layer_output
 
@@ -231,7 +229,7 @@ class LSTM(object):
 
   ## Example functions for different ways to call the autoencoder graph.
   def initialize_states(self, batch_size, feed_dict={}):
-    for c_state, h_state in zip(c_state_placeholders, h_state_placeholders):
+    for c_state, h_state in zip(self.c_state_placeholders, self.h_state_placeholders):
         feed_dict[c_state] = np.zeros([batch_size, self.MP.NUM_UNITS])
         feed_dict[h_state] = np.zeros([batch_size, self.MP.NUM_UNITS])
     return feed_dict

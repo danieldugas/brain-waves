@@ -3,9 +3,9 @@ import numpy as np
 class Batchmaker:
     def __init__(self, input_data, is_sleep_data, examples_per_batch, model_params,
                  example_filter=None, shuffle_examples=True):
-        self.input_data = input_data
-        self.is_sleep_data = is_sleep_data
-        self.input_shape = model_params.INPUT_SHAPE
+        self.input_data = np.reshape(input_data, [-1, 1])
+        self.is_sleep_data = np.reshape(is_sleep_data, [-1, 1])
+        self.input_shape = model_params.WAVE_IN_SHAPE
         self.target_shape = model_params.WAVE_OUT_SHAPE
         self.example_width = self.input_shape[0] + self.target_shape[0]
         # create example indices list

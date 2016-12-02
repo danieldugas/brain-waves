@@ -5,7 +5,7 @@ class Batchmaker:
                  example_filter=None, shuffle_examples=True):
         self.input_data = input_data
         self.is_sleep_data = is_sleep_data
-        self.input_shape = model_params.INPUT_SHAPE
+        self.input_shape = model_params.WAVE_IN_SHAPE
         self.target_shape = model_params.WAVE_OUT_SHAPE
         self.example_width = self.input_shape[0] + self.target_shape[0]
         # create example indices list

@@ -64,7 +64,7 @@ VAL_EVERY_N_STEPS = 1
 VAL_STEP_TOLERANCE = 3
 
 MP = model.ModelParams()
-MP.INPUT_SHAPE = [1000]
+MP.WAVE_IN_SHAPE = [1000]
 MP.WAVE_OUT_SHAPE = [100]
 MP.HIDDEN_LAYERS = [{'shape': [400]}, {'shape': [400]}]
 MP.QUANTIZATION = 10
@@ -175,7 +175,7 @@ for i in range(wave_indices.shape[1]):
 example_contains_sw = np.zeros(raw_wave.shape)
 for i in range(wave_indices.shape[1]):
   example_contains_sw[wave_indices[0,i]-MP.WAVE_OUT_SHAPE[0]:wave_indices[4,i]+MP.WAVE_OUT_SHAPE[0]] = 1
-example_contains_sw = example_contains_sw[MP.INPUT_SHAPE[0]:].astype(bool)
+example_contains_sw = example_contains_sw[MP.WAVE_IN_SHAPE[0]:].astype(bool)
 
 
 # In[ ]:

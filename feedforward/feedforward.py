@@ -8,7 +8,6 @@ from __future__ import print_function
 import numpy as np
 
 import tensorflow as tf
-from ann import model
 import pickle
 
 
@@ -63,8 +62,16 @@ MAX_STEPS = 10000
 VAL_EVERY_N_STEPS = 1
 VAL_STEP_TOLERANCE = 3
 
+MODEL = 'lstm'
+if MODEL == 'lstm':
+  from lstm import model
+  from lstm.quantize import *
+  from lstm.batchmaker import *
+elif MODEL == 'feedforward':
+  from ann import model
+  from ann.quantize import *
+  from ann.batchmaker import *
 MP = model.ModelParams()
-MP.HIDDEN_LAYERS = [{'shape': [400]}, {'shape': [400]}]
 MP.DROPOUT = 0.8
 MP.LEARNING_RATE = 0.0001
 
@@ -79,7 +86,7 @@ TINY_DATASET = False
 FILTER_IN_SLEEP_WAVES = True
 
 RESTORE_MODEL = True
-SAVE_DIR = "/home/daniel/Desktop/feedforward/"
+SAVE_DIR = "/home/daniel/Desktop/"+MODEL+"/"
 SAVE_FILE = "model.checkpoint"
 MP_FILENAME = "model_params.pckl"
 TENSORBOARD_DIR = "/home/daniel/tensorboard"
@@ -92,7 +99,7 @@ PROGRESS = True
 
 if SET_EULER_PARAMS:
     DATA_DIR = "/cluster/home/dugasd/Raw-Waves/"
-    SAVE_DIR = "/cluster/home/dugasd/feedforward-euler/"
+    SAVE_DIR = "/home/daniel/Desktop/"+MODEL+"-euler/"
     TENSORBOARD_DIR = None
     
     MAX_STEPS = 1000000
@@ -100,7 +107,7 @@ if SET_EULER_PARAMS:
 
 if SET_MARMOT_PARAMS:
     DATA_DIR = "/home/daniel/Raw-Waves/"
-    SAVE_DIR = "/home/daniel/feedforward-marmot/"
+    SAVE_DIR = "/home/daniel/Desktop/"+MODEL+"-marmot/"
     TENSORBOARD_DIR = None
     
     MAX_STEPS = 1000000
@@ -207,20 +214,23 @@ if not RUN_AS_PY_SCRIPT:
 
 # In[ ]:
 
-ff = model.Feedforward(MP)
+if MODEL == 'lstm':
+  nn = model.LSTM(MP)
+elif MODEL == 'feedforward':
+  nn = model.Feedforward(MP)
 
 
 # In[ ]:
 
-if TENSORBOARD_DIR != None:
-  summary_writer = tf.train.SummaryWriter(TENSORBOARD_DIR, ff.sess.graph)
+if False and TENSORBOARD_DIR != None:
+  summary_writer = tf.train.SummaryWriter(TENSORBOARD_DIR, nn.sess.graph)
 
 
 # In[ ]:
 
 if RESTORE_MODEL:
   try:
-    ff.saver.restore(ff.sess, SAVE_PATH)
+    nn.saver.restore(nn.sess, SAVE_PATH)
     print("Model restored.")
   except:
     print("Could not load model: ", end="")
@@ -259,7 +269,6 @@ else:
 # In[ ]:
 
 from timeit import default_timer as timer
-from ann.batchmaker import Batchmaker, progress_bar
 progress_bar('reset')
 
 total_step_cost = None
@@ -285,7 +294,7 @@ for step in range(MAX_STEPS):
         break
       else:
         batch_input_values, batch_target_values, batch_is_sleep_values = val_batchmaker.next_batch()
-        cost_value = ff.cost_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
+        cost_value = nn.cost_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
         total_val_cost += cost_value
         if PROGRESS:
           progress_bar(val_batchmaker)
@@ -315,7 +324,7 @@ for step in range(MAX_STEPS):
             val_steps_since_last_improvement = 0
             # save model to disk
             print("Saving ... ", end='')
-            save_path = ff.saver.save(ff.sess, SAVE_PATH)
+            save_path = nn.saver.save(nn.sess, SAVE_PATH)
             print("Model saved in file: %s" % save_path)      
         else:
             val_steps_since_last_improvement += 1  
@@ -323,7 +332,7 @@ for step in range(MAX_STEPS):
     if val_steps_since_last_improvement > VAL_STEP_TOLERANCE:
         if SAVE_UNVALIDATED:
             print("Saving ... ", end='')
-            save_path = ff.saver.save(ff.sess, SAVE_PATH_NOVAL)
+            save_path = nn.saver.save(nn.sess, SAVE_PATH_NOVAL)
             print("Unvalidated model saved in file: %s" % save_path)
         print("Training stopped by validation monitor.")
         break
@@ -342,7 +351,7 @@ for step in range(MAX_STEPS):
       batch_input_values, batch_target_values, batch_is_sleep_values = training_batchmaker.next_batch()
       t_b = timer()
       # Train over 1 batch.
-      cost_value = ff.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
+      cost_value = nn.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
       total_step_cost += cost_value
       t_c = timer()
       if PROGRESS:
@@ -363,20 +372,19 @@ print("Training ended.")
 # In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
+  TRAIN = False
   plt.close('all')
   import time
-  from ann.batchmaker import Batchmaker
   
   total_step_cost = None
   step_cost_log = []
-
+  test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=val_contains_sw, shuffle_examples=False)
   # single step
   while True:
       # Validation
-      test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=val_contains_sw, shuffle_examples=True)
-      X, Y, IS = test_batchmaker.next_batch()
-      Y_pred, IS_pred = ff.predict(X)
-      from ann.quantize import *
+      for i in range(MP.WAVE_OUT_SHAPE[0]):
+        X, Y, IS = test_batchmaker.next_batch()
+      Y_pred, IS_pred = nn.predict(X)
       plt.clf()
       plt.figure('training_evo')
       plt.subplot(2,2,4)
@@ -386,6 +394,7 @@ if not RUN_AS_PY_SCRIPT:
       plt.subplot(2,2,3)
       plt.plot(step_cost_log)
       plt.subplot(2,1,1)
+      plt.plot(range(len(X[0])), -X[0], alpha=0.1)
       plt.plot(range(len(X[0])), X[0])
       if MP.ESTIMATOR['type'] == 'quantized':
         y = inverse_mu_law(unquantize(quantize(mu_law(Y[0]),MP.ESTIMATOR['bins'])))
@@ -399,17 +408,17 @@ if not RUN_AS_PY_SCRIPT:
       plt.gcf().canvas.draw()
       time.sleep(0.1)
     
-      # Train on batches
       total_step_cost = 0
-      training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=train_contains_sw)
-      while True:
-        if training_batchmaker.is_depleted():
-          break
-        else:
-          batch_input_values, batch_target_values, batch_is_sleep_values = training_batchmaker.next_batch()
-          # Train over 1 batch.
-          cost_value = ff.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
-          total_step_cost += cost_value
+      if TRAIN:
+        training_batchmaker = Batchmaker(train, train_is_sleep, BATCH_SIZE, MP, example_filter=train_contains_sw)
+        while True:
+          if training_batchmaker.is_depleted():
+            break
+          else:
+            batch_input_values, batch_target_values, batch_is_sleep_values = training_batchmaker.next_batch()
+            # Train over 1 batch.
+            cost_value = nn.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
+            total_step_cost += cost_value
       step_cost_log.append(total_step_cost)
 
 

@@ -19,8 +19,9 @@ class Batchmaker:
         if shuffle_examples:
           from random import shuffle
           shuffle(self.remaining_example_indices)
-        # pop() works from the end
-        self.remaining_example_indices[::-1]
+        else:
+          # pop() works from the end
+          self.remaining_example_indices = self.remaining_example_indices[::-1]
         # examples per batch
         if examples_per_batch is "max":
             examples_per_batch = len(self.remaining_example_indices)

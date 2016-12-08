@@ -5,9 +5,10 @@ from lstm.quantize import *
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [100, 1] # [timesteps, channels]
-    self.WAVE_OUT_SHAPE = [10, 1]
-    self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
+    self.WAVE_IN_SHAPE = [1000, 1] # [timesteps, channels]
+    self.WAVE_OUT_SHAPE = [100, 1]
+#     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
+    self.ESTIMATOR = {'type': 'gaussian'}
     self.LEARNING_RATE = 0.001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
@@ -43,12 +44,12 @@ def n_dimensional_weightmul(L, W, L_shape, Lout_shape, first_dim_of_l_is_batch=T
 class LSTM(object):
   def __init__(self, model_params):
     self.MP = model_params
-    self.estimator_shape = [2] if self.MP.ESTIMATOR['type'] == 'gaussian' else [self.MP.ESTIMATOR['bins']]
+    self.estimator_shape = [1] if self.MP.ESTIMATOR['type'] == 'gaussian' else [self.MP.ESTIMATOR['bins']]
 
     tf.reset_default_graph()
     preset_batch_size = None
     self.variables = []
-  
+
     # Graph input
     with tf.name_scope('Placeholders') as scope:
       self.input_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
@@ -143,47 +144,51 @@ class LSTM(object):
       self.raw_output = tf.nn.softmax(tf.pack(self.unrolled_raw_outputs, axis=1))
       self.is_sleep = tf.pack(self.unrolled_is_sleep, axis=1)
   
-    raw_output_shape = self.MP.WAVE_OUT_SHAPE + self.estimator_shape
-    is_sleep_shape = self.MP.WAVE_OUT_SHAPE
+    self.raw_output_shape = self.MP.WAVE_OUT_SHAPE + self.estimator_shape
+    self.is_sleep_shape = self.MP.WAVE_OUT_SHAPE
     # Loss
     if self.MP.ESTIMATOR['type'] == 'gaussian': raise NotImplementedError
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
         # Cross entropy loss of output probabilities vs. target certainties.
-        reconstruction_loss = \
-            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.raw_output, name="log1")
-                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.raw_output), name="log2"),
-                           list(range(1,len(raw_output_shape)+1)))
+        if self.MP.ESTIMATOR['type'] == 'quantized':
+          reconstruction_loss = \
+              -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.raw_output, name="log1")
+                             + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.raw_output), name="log2"),
+                             list(range(1,len(self.raw_output_shape)+1)))
+        elif self.MP.ESTIMATOR['type'] == 'gaussian':
+          reconstruction_loss = \
+              tf.reduce_sum(tf.square(self.target_placeholder - self.raw_output),
+                             list(range(1,len(self.raw_output_shape)+1)))
       with tf.name_scope('IsSleepLoss') as sub_scope:
         # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
         is_sleep_loss = \
             -tf.reduce_sum(self.is_sleep_placeholder * tf.log(1e-10 + self.is_sleep, name="log3")
                            + (1-self.is_sleep_placeholder) * tf.log(1e-10 + (1 - self.is_sleep), name="log4"),
-                           list(range(1,len(is_sleep_shape)+1)))
+                           list(range(1,len(self.is_sleep_shape)+1)))
       # Average sum of costs over batch.
       self.cost = tf.reduce_mean(reconstruction_loss + is_sleep_loss, name="cost")
-  
-      # Optimizer (ADAM)
-      with tf.name_scope('Optimizer') as scope:
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.MP.LEARNING_RATE).minimize(self.cost)
-        if self.MP.CLIP_GRADIENTS > 0:
-          adam = tf.train.AdamOptimizer(learning_rate=self.MP.LEARNING_RATE)
-          gvs = adam.compute_gradients(self.cost)
-          capped_gvs = [(tf.clip_by_norm(grad, self.MP.CLIP_GRADIENTS), var) for grad, var in gvs]
-          self.optimizer = adam.apply_gradients(capped_gvs)
-      # Initialize session
-      self.catch_nans = tf.add_check_numerics_ops()
-      self.sess = tf.Session()
-      tf.initialize_all_variables().run(session=self.sess)
-      # Saver
-      variable_names = {}
-      for var in self.variables:
-        variable_names[var.name] = var
-      self.saver = tf.train.Saver(variable_names)
-  
+    # Optimizer (ADAM)
+    with tf.name_scope('Optimizer') as scope:
+      self.optimizer = tf.train.AdamOptimizer(learning_rate=self.MP.LEARNING_RATE).minimize(self.cost)
+      if self.MP.CLIP_GRADIENTS > 0:
+        adam = tf.train.AdamOptimizer(learning_rate=self.MP.LEARNING_RATE)
+        gvs = adam.compute_gradients(self.cost)
+        capped_gvs = [(tf.clip_by_norm(grad, self.MP.CLIP_GRADIENTS), var) for grad, var in gvs]
+        self.optimizer = adam.apply_gradients(capped_gvs)
+    # Initialize session
+    self.catch_nans = tf.add_check_numerics_ops()
+    self.sess = tf.Session()
+    tf.initialize_all_variables().run(session=self.sess)
+    # Saver
+    variable_names = {}
+    for var in self.variables:
+      variable_names[var.name] = var
+    self.saver = tf.train.Saver(variable_names)
+
   def estimator_output_function(self,x):
       if self.MP.ESTIMATOR['type'] == 'gaussian':
-        return x
+        return tf.nn.tanh(x)
       elif self.MP.ESTIMATOR['type'] == 'quantized':
         return tf.nn.softplus(x)
       else:
@@ -218,17 +223,18 @@ class LSTM(object):
       layer_output = tf.minimum(layer_output, 1)
       return layer_output
 
-  def est2out(self, est, est_shape):
+  def est2out(self, est, shape):
       if self.MP.ESTIMATOR['type'] == 'gaussian':
-          with tf.name_scope('SampleZValues') as scope:
-              # sample = mean + sigma*epsilon
-              epsilon = tf.random_normal(tf.shape(self.z_mean), 0, 1,
-                                         dtype=self.MP.FLOAT_TYPE)
-              sample = tf.add(self.z_mean,
-                              tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_squared)), epsilon))
-              return sample
+        return tf.reshape(est, [-1]+shape[:-1])
+         # with tf.name_scope('SampleZValues') as scope:
+         #     # sample = mean + sigma*epsilon
+         #     epsilon = tf.random_normal(tf.shape(self.z_mean), 0, 1,
+         #                                dtype=self.MP.FLOAT_TYPE)
+         #     sample = tf.add(self.z_mean,
+         #                     tf.mul(tf.sqrt(tf.exp(self.z_log_sigma_squared)), epsilon))
+         #     return sample
       elif self.MP.ESTIMATOR['type'] == 'quantized':
-          return tf_inverse_mu_law(tf_unquantize_pick_max(est, est_shape), mu=self.MP.ESTIMATOR['mu'])
+          return tf_inverse_mu_law(tf_unquantize_pick_max(est, shape), mu=self.MP.ESTIMATOR['mu'])
       else:
           raise NotImplementedError
 
@@ -245,7 +251,9 @@ class LSTM(object):
   def train_on_single_batch(self, batch_input, batch_target, batch_is_sleep, cost_only=False, dropout=None):
     # feed placeholders
     dict_ = {self.input_placeholder: batch_input}
-    dict_[self.target_placeholder] = quantize(mu_law(batch_target), n_bins=self.MP.ESTIMATOR['bins'])
+    dict_[self.target_placeholder] = quantize(mu_law(batch_target),
+                                              n_bins=self.MP.ESTIMATOR['bins']) if self.MP.ESTIMATOR['type'] == 'quantized' \
+            else np.reshape(batch_target, [-1]+self.raw_output_shape)
     dict_[self.is_sleep_placeholder] = batch_is_sleep
     dict_ = self.initialize_states(len(batch_input), dict_)
     if self.MP.DROPOUT is not None:

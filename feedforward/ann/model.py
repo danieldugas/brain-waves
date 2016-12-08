@@ -5,7 +5,7 @@ class ModelParams:
   def __init__(self):
     self.WAVE_IN_SHAPE = [1000, 1]
     self.HIDDEN_LAYERS = [{'shape': [200]}, {'shape': [100]}, {'shape': [100]}, {'shape': [100]}]
-    self.WAVE_OUT_SHAPE = [10, 1]
+    self.WAVE_OUT_SHAPE = [100, 1]
 #     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
     self.ESTIMATOR = {'type': 'gaussian'}
     self.LEARNING_RATE = 0.0001
@@ -56,10 +56,10 @@ class Feedforward(object):
         self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
       self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
                                                shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + self.estimator_shape,
-                                               name="output")
+                                               name="target")
       self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
                                                  shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
-                                                 name="output")
+                                                 name="is_sleep")
     previous_layer = self.input_placeholder
     previous_layer_shape = self.MP.WAVE_IN_SHAPE # Excludes batch dim (which should be at pos 0)
     # Flatten output

@@ -43,7 +43,7 @@ def tf_inverse_mu_law(y, mu=255, x_max=1):
 def tf_unquantize_pick_max(X, X_shape, x_max=1):
   n_bins=X_shape[-1]
   flat_X = tf.reshape(X, [-1,n_bins])
-  flat_X_bin = tf.argmax(flat_X, axis=1)
+  flat_X_bin = tf.argmax(flat_X, 1)
   indices = tf.reshape(flat_X_bin, [-1]+X_shape[:-1])
   return (indices/(n_bins-1) - 0.5) * 2*x_max
 

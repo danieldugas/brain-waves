@@ -71,6 +71,7 @@ elif MODEL == 'feedforward':
   from ann import model
   from ann.quantize import *
   from ann.batchmaker import *
+
 MP = model.ModelParams()
 MP.DROPOUT = 0.8
 MP.LEARNING_RATE = 0.0001
@@ -116,8 +117,6 @@ if SET_MARMOT_PARAMS:
 if not RUN_AS_PY_SCRIPT:
     #MAX_STEPS = 0
     VAL_STEP_TOLERANCE = 10
-    MP.QUANTIZATION = 10
-    MP.HIDDEN_LAYERS = [{'shape': [100]}, {'shape': [20]}]
     TINY_DATASET = True
 
 
@@ -382,7 +381,9 @@ if not RUN_AS_PY_SCRIPT:
   # single step
   while True:
       # Validation
+      if test_batchmaker.is_depleted(): break
       for i in range(MP.WAVE_OUT_SHAPE[0]):
+        if test_batchmaker.is_depleted(): break
         X, Y, IS = test_batchmaker.next_batch()
       Y_pred, IS_pred = nn.predict(X)
       plt.clf()
@@ -420,14 +421,4 @@ if not RUN_AS_PY_SCRIPT:
             cost_value = nn.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
             total_step_cost += cost_value
       step_cost_log.append(total_step_cost)
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-
 

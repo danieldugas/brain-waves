@@ -147,7 +147,6 @@ class LSTM(object):
     self.raw_output_shape = self.MP.WAVE_OUT_SHAPE + self.estimator_shape
     self.is_sleep_shape = self.MP.WAVE_OUT_SHAPE
     # Loss
-    if self.MP.ESTIMATOR['type'] == 'gaussian': raise NotImplementedError
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
         # Cross entropy loss of output probabilities vs. target certainties.

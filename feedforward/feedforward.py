@@ -44,11 +44,11 @@ if len(argv) > 1:
 # In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
-  get_ipython().magic(u'load_ext autoreload')
-  get_ipython().magic(u'autoreload 2')
+  get_ipython().magic('load_ext autoreload')
+  get_ipython().magic('autoreload 2')
   from IPython.display import clear_output
   if PLOTTING_SUPPORT:
-    get_ipython().magic(u'matplotlib notebook')
+    get_ipython().magic('matplotlib notebook')
     from matplotlib import pyplot as plt
     plotting_function = plt.step
 
@@ -64,12 +64,9 @@ VAL_EVERY_N_STEPS = 1
 VAL_STEP_TOLERANCE = 3
 
 MP = model.ModelParams()
-MP.WAVE_IN_SHAPE = [1000]
-MP.WAVE_OUT_SHAPE = [100]
 MP.HIDDEN_LAYERS = [{'shape': [400]}, {'shape': [400]}]
-MP.QUANTIZATION = 10
 MP.DROPOUT = 0.8
-MP.LEARNING_RATE = 0.00001
+MP.LEARNING_RATE = 0.0001
 
 DATA_DIR = "/home/daniel/Downloads/Raw-Waves/"
 DATA_FILENAME="001_Session1_FilterTrigCh_RawCh.mat"
@@ -382,20 +379,22 @@ if not RUN_AS_PY_SCRIPT:
       from ann.quantize import *
       plt.clf()
       plt.figure('training_evo')
-      plt.subplot(2,2,1)
-      plt.plot(X[0])
-      plt.subplot(2,2,2)
-      y = inverse_mu_law(unquantize(quantize(mu_law(Y[0]),MP.QUANTIZATION)))
-      plt.step(range(len(y)), y, label='ground truth')
-      y = inverse_mu_law(unquantize(pick_max(Y_pred[0])))
-      plt.step(range(len(y)), y, label='prediction')
-      plt.plot(Y[0])
       plt.subplot(2,2,4)
       plt.step(range(len(IS[0])), IS[0], label='ground truth')
       plt.step(range(len(IS_pred[0])), IS_pred[0], label='prediction')
       plt.ylim([-0.1, 1.1])
       plt.subplot(2,2,3)
       plt.plot(step_cost_log)
+      plt.subplot(2,1,1)
+      plt.plot(range(len(X[0])), X[0])
+      if MP.ESTIMATOR['type'] == 'quantized':
+        y = inverse_mu_law(unquantize(quantize(mu_law(Y[0]),MP.ESTIMATOR['bins'])))
+        plt.step(range(len(y)), y, label='ground truth')
+        y = inverse_mu_law(unquantize(pick_max(Y_pred[0])))
+      else:
+        y = Y_pred[0][:,:,0]
+      plt.step(range(len(X[0]),len(y)+len(X[0])), y, label='prediction')
+      plt.plot(range(len(X[0]),len(Y[0])+len(X[0])), Y[0])
       plt.show()
       plt.gcf().canvas.draw()
       time.sleep(0.1)
@@ -412,6 +411,11 @@ if not RUN_AS_PY_SCRIPT:
           cost_value = ff.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
           total_step_cost += cost_value
       step_cost_log.append(total_step_cost)
+
+
+# In[ ]:
+
+
 
 
 # In[ ]:

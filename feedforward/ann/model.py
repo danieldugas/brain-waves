@@ -3,10 +3,11 @@ import tensorflow as tf
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [1000]
+    self.WAVE_IN_SHAPE = [1000, 1]
     self.HIDDEN_LAYERS = [{'shape': [200]}, {'shape': [100]}, {'shape': [100]}, {'shape': [100]}]
-    self.WAVE_OUT_SHAPE = [10]
-    self.QUANTIZATION = 256
+    self.WAVE_OUT_SHAPE = [10, 1]
+#     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
+    self.ESTIMATOR = {'type': 'gaussian'}
     self.LEARNING_RATE = 0.0001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
@@ -40,6 +41,7 @@ def n_dimensional_weightmul(L, W, L_shape, Lout_shape, first_dim_of_l_is_batch=T
 class Feedforward(object):
   def __init__(self, model_params):
     self.MP = model_params
+    self.estimator_shape = [1] if self.MP.ESTIMATOR['type'] == 'gaussian' else [self.MP.ESTIMATOR['bins']]
 
     tf.reset_default_graph()
     preset_batch_size = None
@@ -53,7 +55,7 @@ class Feedforward(object):
         default_dropout = tf.constant(1, dtype=self.MP.FLOAT_TYPE)
         self.dropout_placeholder = tf.placeholder_with_default(default_dropout, (), name="dropout_prob")
       self.target_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
-                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION],
+                                               shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE + self.estimator_shape,
                                                name="output")
       self.is_sleep_placeholder = tf.placeholder(self.MP.FLOAT_TYPE,
                                                  shape=[preset_batch_size] + self.MP.WAVE_OUT_SHAPE,
@@ -88,69 +90,74 @@ class Feedforward(object):
         # set up next loop
         previous_layer = layer_output
         previous_layer_shape = layer_shape
+
     # Output (as probability of output being 1)
     with tf.name_scope('OutputLayer') as scope:
-      layer_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
-      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
+      layer_shape = self.MP.WAVE_OUT_SHAPE + self.estimator_shape
+      flat_layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
       with tf.variable_scope('OutputLayerWeights') as varscope:
         weights = tf.get_variable("weights_output", dtype=self.MP.FLOAT_TYPE,
-                                  shape=previous_layer_shape + layer_shape,
+                                  shape=previous_layer_shape + flat_layer_shape,
                                   initializer=tf.contrib.layers.xavier_initializer())
         biases  = tf.get_variable("biases_output" , dtype=self.MP.FLOAT_TYPE,
-                                  shape=layer_shape,
+                                  shape=flat_layer_shape,
                                   initializer=tf.constant_initializer(0))
       self.variables.append(weights)
       self.variables.append(biases)
-      layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
-                                                                   weights,
-                                                                   previous_layer_shape,
-                                                                   layer_shape),
-                                           biases),
-                                    name='softplus')
+      layer_output = self.estimator_output_function(tf.add(n_dimensional_weightmul(previous_layer,
+                                                                                   weights,
+                                                                                   previous_layer_shape,
+                                                                                   flat_layer_shape),
+                                                           biases))
       if self.MP.DROPOUT is not None:
         layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
       # Unflatten output
-      output_shape = self.MP.WAVE_OUT_SHAPE + [self.MP.QUANTIZATION]
-      unflattened = tf.reshape(layer_output, shape=[-1]+output_shape, name="unflatten")
-      self.output = tf.nn.softmax(unflattened)
+      unflattened = tf.reshape(layer_output, shape=[-1]+layer_shape, name="unflatten")
+      self.output = tf.nn.softmax(unflattened) if self.MP.ESTIMATOR['type'] == 'quantized' else unflattened
+      self.output_shape = layer_shape
     # Sleep prediction
     with tf.name_scope('IsSleepLayer') as scope:
       layer_shape = self.MP.WAVE_OUT_SHAPE
-      layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
+      flat_layer_shape = [np.prod(layer_shape)] # Compute as a flat layer
       with tf.variable_scope('IsSleepLayerWeights') as varscope:
         weights = tf.get_variable("weights_is_sleep", dtype=self.MP.FLOAT_TYPE,
-                                  shape=previous_layer_shape + layer_shape,
+                                  shape=previous_layer_shape + flat_layer_shape,
                                   initializer=tf.contrib.layers.xavier_initializer())
         biases  = tf.get_variable("biases_is_sleep" , dtype=self.MP.FLOAT_TYPE,
-                                  shape=layer_shape,
+                                  shape=flat_layer_shape,
                                   initializer=tf.constant_initializer(0))
       self.variables.append(weights)
       self.variables.append(biases)
       layer_output = tf.nn.softplus(tf.add(n_dimensional_weightmul(previous_layer,
                                                                    weights,
                                                                    previous_layer_shape,
-                                                                   layer_shape),
+                                                                   flat_layer_shape),
                                            biases),
                                     name='softplus')
       if self.MP.DROPOUT is not None:
         layer_output = tf.nn.dropout(layer_output, self.dropout_placeholder)
       # Unflatten output
-      is_sleep_shape = self.MP.WAVE_OUT_SHAPE
-      self.is_sleep = tf.minimum(tf.reshape(layer_output, shape=[-1]+is_sleep_shape, name="unflatten"), 1)
+      self.is_sleep = tf.minimum(tf.reshape(layer_output, shape=[-1]+layer_shape, name="unflatten"), 1)
+      self.is_sleep_shape = layer_shape
     # Loss
     with tf.name_scope('Loss') as scope:
       with tf.name_scope('ReconstructionLoss') as sub_scope:
         # Cross entropy loss of output probabilities vs. target certainties.
-        reconstruction_loss = \
-            -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
-                           + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
-                           list(range(1,len(output_shape)+1)))
+        if self.MP.ESTIMATOR['type'] == 'quantized':
+          reconstruction_loss = \
+              -tf.reduce_sum(self.target_placeholder * tf.log(1e-10 + self.output, name="log1")
+                             + (1-self.target_placeholder) * tf.log(1e-10 + (1 - self.output), name="log2"),
+                             list(range(1,len(self.output_shape)+1)))
+        elif self.MP.ESTIMATOR['type'] == 'gaussian':
+          reconstruction_loss = \
+              tf.reduce_sum(tf.square(self.target_placeholder - self.output),
+                             list(range(1,len(self.output_shape)+1)))
       with tf.name_scope('IsSleepLoss') as sub_scope:
         # Cross entropy loss of is_sleep probabilities vs. is_sleep certainties.
         is_sleep_loss = \
             -tf.reduce_sum(self.is_sleep_placeholder * tf.log(1e-10 + self.is_sleep, name="log3")
                            + (1-self.is_sleep_placeholder) * tf.log(1e-10 + (1 - self.is_sleep), name="log4"),
-                           list(range(1,len(is_sleep_shape)+1)))
+                           list(range(1,len(self.is_sleep_shape)+1)))
       # Average sum of costs over batch.
       self.cost = tf.reduce_mean(reconstruction_loss + is_sleep_loss, name="cost")
     # Optimizer (ADAM)
@@ -171,6 +178,14 @@ class Feedforward(object):
       variable_names[var.name] = var
     self.saver = tf.train.Saver(variable_names)
 
+  def estimator_output_function(self,x):
+      if self.MP.ESTIMATOR['type'] == 'gaussian':
+        return tf.nn.tanh(x)
+      elif self.MP.ESTIMATOR['type'] == 'quantized':
+        return tf.nn.softplus(x)
+      else:
+        raise NotImplementedError
+
   ## Example functions for different ways to call the autoencoder graph.
   def predict(self, batch_input):
     return self.sess.run((self.output, self.is_sleep),
@@ -179,7 +194,9 @@ class Feedforward(object):
     # feed placeholders
     from ann.quantize import quantize, mu_law
     dict_ = {self.input_placeholder: batch_input}
-    dict_[self.target_placeholder] = quantize(mu_law(batch_target), n_bins=self.MP.QUANTIZATION)
+    dict_[self.target_placeholder] = quantize(mu_law(batch_target),
+                                              n_bins=self.MP.ESTIMATOR['bins']) if self.MP.ESTIMATOR['type'] == 'quantized' \
+            else np.reshape(batch_target, [-1]+self.output_shape)
     dict_[self.is_sleep_placeholder] = batch_is_sleep
     if self.MP.DROPOUT is not None:
       dict_[self.dropout_placeholder] = self.MP.DROPOUT if dropout is None else dropout

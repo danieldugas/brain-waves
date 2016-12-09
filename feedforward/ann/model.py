@@ -3,15 +3,16 @@ import tensorflow as tf
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [1000, 1]
-    self.HIDDEN_LAYERS = [{'shape': [1000]}, {'shape': [500]}, {'shape': [400]}, {'shape': [400]}]
-    self.WAVE_OUT_SHAPE = [100, 1]
+    self.WAVE_IN_SHAPE = [4000, 1]
+    self.WAVE_OUT_SHAPE = [200, 1]
+    self.HIDDEN_LAYERS = [{'shape': [1000]}, {'shape': [500]}, {'shape': [500]}, {'shape': [501]}]
 #     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
     self.ESTIMATOR = {'type': 'gaussian'}
     self.LEARNING_RATE = 0.0001
     self.CLIP_GRADIENTS = 0
     self.DROPOUT = 0.8 # Keep-prob
     self.FLOAT_TYPE = tf.float32
+    self.USE_PREDICTED_OUTPUT_FOR_SLEEP_PREDICTION = False
   def __str__(self):
     return str(self.__dict__)
   def __eq__(self, other): 
@@ -115,6 +116,10 @@ class Feedforward(object):
       unflattened = tf.reshape(layer_output, shape=[-1]+layer_shape, name="unflatten")
       self.output = tf.nn.softmax(unflattened) if self.MP.ESTIMATOR['type'] == 'quantized' else unflattened
       self.output_shape = layer_shape
+    # Concatenate predicted output to input of sleep prediction layer.
+    if self.MP.USE_PREDICTED_OUTPUT_FOR_SLEEP_PREDICTION:
+        flattened_output = tf.reshape(layer_output, [-1, np.prod(self.output_shape)])
+        previous_layer = tf.concat(1, [previous_layer, flattened_output])
     # Sleep prediction
     with tf.name_scope('IsSleepLayer') as scope:
       layer_shape = self.MP.WAVE_OUT_SHAPE

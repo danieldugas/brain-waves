@@ -37,7 +37,7 @@ if len(argv) > 1:
     PLOTTING_SUPPORT = False
     SET_MARMOT_PARAMS = True
     print("Parameters set for execution on marmot cluster")
-    argv.remove("--marmot") 
+    argv.remove("--marmot")    
 
 
 # In[ ]:
@@ -62,7 +62,15 @@ MAX_STEPS = 10000
 VAL_EVERY_N_STEPS = 1
 VAL_STEP_TOLERANCE = 3
 
-MODEL = 'lstm'
+MODEL = 'feedforward'
+if "--lstm" in argv:
+  MODEL = 'lstm'
+  print("LSTM Model Selected")
+  argv.remove("--lstm")
+if "--feedforward" in argv:
+  MODEL = 'feedforward'
+  print("Feedforward Model Selected")
+  argv.remove("--feedforward")   
 if MODEL == 'lstm':
   from lstm import model
   from lstm.quantize import *
@@ -134,6 +142,9 @@ if RUN_AS_PY_SCRIPT:
       elif arg == "-CLIP_GRADIENTS":
         MP.CLIP_GRADIENTS = float(argv.pop(0))
         print("CLIP_GRADIENTS set to " + str(MP.CLIP_GRADIENTS))
+      elif arg == "-LEARNING_RATE":
+        MP.LEARNING_RATE = float(argv.pop(0))
+        print("LEARNING_RATE set to " + str(MP.LEARNING_RATE))
       elif arg == "--float64":
         MP.FLOAT_TYPE = tf.float64
         print("MP.FLOAT_TYPE set to " + str(MP.FLOAT_TYPE))
@@ -184,15 +195,16 @@ example_contains_sw = example_contains_sw[MP.WAVE_IN_SHAPE[0]:].astype(bool)
 # In[ ]:
 
 if TINY_DATASET:
-  raw_wave = raw_wave[np.where(example_contains_sw)[0][0]:][:10000]
-  is_sleep_wave = is_sleep_wave[np.where(example_contains_sw)[0][0]:][:10000]
-  example_contains_sw = example_contains_sw[np.where(example_contains_sw)[0][0]:][:10000]
+  HOW_TINY = 50000
+  raw_wave = raw_wave[np.where(example_contains_sw)[0][0]:][:50000]
+  is_sleep_wave = is_sleep_wave[np.where(example_contains_sw)[0][0]:][:50000]
+  example_contains_sw = example_contains_sw[np.where(example_contains_sw)[0][0]:][:50000]
 
 
 # In[ ]:
 
 if not RUN_AS_PY_SCRIPT:
-  plt.figure()
+  plt.figure(figsize=[100,10])
   plotting_function(range(len(raw_wave)),raw_wave,label="raw_wave")
   plotting_function(range(len(is_sleep_wave)), is_sleep_wave, label="is_sleep_wave")
   plt.show()
@@ -378,6 +390,7 @@ if not RUN_AS_PY_SCRIPT:
   total_step_cost = None
   step_cost_log = []
   test_batchmaker = Batchmaker(val, val_is_sleep, 1, MP, example_filter=val_contains_sw, shuffle_examples=False)
+  full_is_sleep = [];  full_is_sleep_pred = [];  full_ground_truth = [];  full_prediction = []
   # single step
   while True:
       # Validation
@@ -395,7 +408,7 @@ if not RUN_AS_PY_SCRIPT:
       plt.subplot(2,2,3)
       plt.plot(step_cost_log)
       plt.subplot(2,1,1)
-      plt.plot(range(len(X[0])), -X[0], alpha=0.1)
+      plt.plot(range(len(X[0])), -X[0], alpha=0)
       plt.plot(range(len(X[0])), X[0])
       if MP.ESTIMATOR['type'] == 'quantized':
         y = inverse_mu_law(unquantize(quantize(mu_law(Y[0]),MP.ESTIMATOR['bins'])))
@@ -408,6 +421,8 @@ if not RUN_AS_PY_SCRIPT:
       plt.show()
       plt.gcf().canvas.draw()
       time.sleep(0.1)
+      full_is_sleep = full_is_sleep + list(IS[0]); full_is_sleep_pred = full_is_sleep_pred + list(IS_pred[0])
+      full_ground_truth = full_ground_truth + list(Y[0]);  full_prediction = full_prediction + list(Y_pred[0])
     
       total_step_cost = 0
       if TRAIN:
@@ -421,4 +436,22 @@ if not RUN_AS_PY_SCRIPT:
             cost_value = nn.train_on_single_batch(batch_input_values, batch_target_values, batch_is_sleep_values)
             total_step_cost += cost_value
       step_cost_log.append(total_step_cost)
+
+
+# In[ ]:
+
+if not RUN_AS_PY_SCRIPT:
+  plt.figure()
+  plt.subplot(2,1,1)
+  plt.plot(np.array(full_prediction)[:,:,0])
+  plt.plot(np.array(full_ground_truth))
+  plt.subplot(2,1,2)
+  plt.plot(np.array(full_is_sleep))
+  plt.plot(np.array(full_is_sleep_pred))
+  plt.ylim([-0.1,1.1])
+
+
+# In[ ]:
+
+
 

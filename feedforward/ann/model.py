@@ -4,7 +4,7 @@ import tensorflow as tf
 class ModelParams:
   def __init__(self):
     self.WAVE_IN_SHAPE = [1000, 1]
-    self.HIDDEN_LAYERS = [{'shape': [200]}, {'shape': [100]}, {'shape': [100]}, {'shape': [100]}]
+    self.HIDDEN_LAYERS = [{'shape': [1000]}, {'shape': [500]}, {'shape': [400]}, {'shape': [400]}]
     self.WAVE_OUT_SHAPE = [100, 1]
 #     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
     self.ESTIMATOR = {'type': 'gaussian'}

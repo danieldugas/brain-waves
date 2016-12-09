@@ -108,7 +108,7 @@ PROGRESS = True
 
 if SET_EULER_PARAMS:
     DATA_DIR = "/cluster/home/dugasd/Raw-Waves/"
-    SAVE_DIR = "/home/daniel/Desktop/"+MODEL+"-euler/"
+    SAVE_DIR = "/cluster/home/dugasd/"+MODEL+"-euler/"
     TENSORBOARD_DIR = None
     
     MAX_STEPS = 1000000
@@ -116,7 +116,7 @@ if SET_EULER_PARAMS:
 
 if SET_MARMOT_PARAMS:
     DATA_DIR = "/home/daniel/Raw-Waves/"
-    SAVE_DIR = "/home/daniel/Desktop/"+MODEL+"-marmot/"
+    SAVE_DIR = "/home/daniel/"+MODEL+"-marmot/"
     TENSORBOARD_DIR = None
     
     MAX_STEPS = 1000000

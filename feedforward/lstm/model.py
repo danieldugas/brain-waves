@@ -5,16 +5,16 @@ from lstm.quantize import *
 
 class ModelParams:
   def __init__(self):
-    self.WAVE_IN_SHAPE = [1000, 1] # [timesteps, channels]
-    self.WAVE_OUT_SHAPE = [100, 1]
+    self.WAVE_IN_SHAPE = [4000, 1] # for example: [timesteps, channels]
+    self.WAVE_OUT_SHAPE = [200, 1]
 #     self.ESTIMATOR = {'type': 'quantized', 'bins': 256, 'mu': 255} # {'type': 'gaussian'}
     self.ESTIMATOR = {'type': 'gaussian'}
     self.LEARNING_RATE = 0.001
-    self.CLIP_GRADIENTS = 0
+    self.CLIP_GRADIENTS = 5.0
     self.DROPOUT = 0.8 # Keep-prob
     self.FLOAT_TYPE = tf.float64
-    self.NUM_UNITS = 100
-    self.N_LAYERS = 3
+    self.NUM_UNITS = 300
+    self.N_LAYERS = 2
   def __str__(self):
     return str(self.__dict__)
   def __eq__(self, other): 
